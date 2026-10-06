@@ -1,0 +1,12 @@
+# Outils / éditeurs
+node_modules/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Fichiers de données personnels (ne jamais versionner un GEDCOM privé)
+*.ged
+*.gedcom
