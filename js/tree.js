@@ -1,9 +1,12 @@
 /**
- * tree.js — Jalon M3 : vue combinée ascendants/descendants (D3).
+ * tree.js — Jalon M4 : vue combinée ascendants/descendants (D3)
+ * avec conjoints et distinction visuelle hommes/femmes.
  *
  * Depuis l'individu racine sélectionné en M1, dessine ses ascendants à gauche
  * et ses descendants à droite, sur un nombre de générations réglable de part
- * et d'autre. Zoom (molette), déplacement (glisser).
+ * et d'autre. Chaque individu affiché dont le conjoint n'est pas déjà dans
+ * l'arbre reçoit une carte conjoint attachée, reliée par un trait horizontal.
+ * Fond des cartes : bleu clair (homme), rose clair (femme), blanc (inconnu).
  *
  * Conformément à dateEstimator, les dates estimées sont mises en évidence :
  * préfixe « ≈ », style dédié, cadre en tirets si une date est estimée.
@@ -16,8 +19,9 @@ const log = logger('tree');
 /** Dimensions d'une carte individu et espacements du layout (px). */
 const NODE_W = 152;
 const NODE_H = 44;
-const GAP_Y = 16;   // espace vertical minimum entre cartes
-const GAP_X = 60;   // espace horizontal entre générations
+const GAP_Y = 16;    // espace vertical minimum entre cartes
+const GAP_X = 60;    // espace horizontal entre générations
+const SPOUSE_DX = 24; // espace entre une carte et son conjoint
 
 /**
  * Construit la hiérarchie des ascendants d'un individu.
@@ -108,6 +112,28 @@ function nameLabel(person) {
   return s.length > 22 ? s.slice(0, 21) + '…' : s;
 }
 
+/** Classe CSS de fond selon le sexe : 'm' (homme), 'f' (femme), null (inconnu). */
+function sexClass(person) {
+  return person.sex === 'M' ? 'm' : person.sex === 'F' ? 'f' : null;
+}
+
+/**
+ * Liste les conjoints d'un individu (xref de l'autre parent de chaque famille).
+ * @param {Object} index - index applicatif
+ * @param {Object} person - individu normalisé
+ * @returns {string[]} xrefs des conjoints trouvés
+ */
+function spouseIds(index, person) {
+  const out = [];
+  for (const famId of person.familyAsSpouse) {
+    const fam = index.getFamily(famId);
+    if (!fam) continue;
+    const sid = fam.husband === person.id ? fam.wife : fam.husband;
+    if (sid) out.push(sid);
+  }
+  return out;
+}
+
 /**
  * Initialise la vue « arbre combiné ascendants/descendants ».
  * @param {Object} options
@@ -155,8 +181,12 @@ export function initTree({ container, controls, index, onSelectNode }) {
   function drawCards(sel) {
     sel.append('rect')
       .attr('width', NODE_W).attr('height', NODE_H).attr('rx', 6)
-      .attr('class', (d) =>
-        d.isRoot ? 'root' : (hasEstimatedDate(d.person) ? 'est' : null));
+      .attr('class', (d) => {
+        const cls = [sexClass(d.person)];
+        if (d.isRoot) cls.push('root');
+        else if (hasEstimatedDate(d.person)) cls.push('est');
+        return cls.filter(Boolean).join(' ') || null;
+      });
 
     sel.append('text')
       .attr('class', 'node-name')
@@ -207,7 +237,7 @@ export function initTree({ container, controls, index, onSelectNode }) {
       }
     }
 
-    // ---------- Liens ----------
+    // ---------- Liens parent → enfant ----------
     for (const { h, sign } of sides) {
       gView.selectAll(null)
         .data(h.links(), (d) => d.source.data.id + '>' + d.target.data.id)
@@ -226,6 +256,32 @@ export function initTree({ container, controls, index, onSelectNode }) {
       }
     }
 
+    // ---------- Conjoints non déjà affichés (M4) ----------
+    const displayed = new Set(cards.map((c) => c.id));
+    const usedAsSpouse = new Set();
+    const spouseLinks = [];
+    for (const c of cards) {
+      for (const sid of spouseIds(index, c.person)) {
+        if (displayed.has(sid) || usedAsSpouse.has(sid)) continue;
+        const sp = index.getIndividual(sid);
+        if (!sp) continue;
+        usedAsSpouse.add(sid);
+        // conjoint placé à l'extérieur de la carte (gauche côté ascendants,
+        // droite pour la racine et les descendants)
+        const dir = c.px < 0 ? -1 : +1;
+        const sx = c.px + dir * (NODE_W + SPOUSE_DX);
+        spouseLinks.push({ from: c, x1: c.px + dir * NODE_W / 2, y1: c.py,
+                           x2: sx - dir * NODE_W / 2, y2: c.py });
+        cards.push({ id: sid, person: sp, isRoot: false, px: sx, py: c.py });
+      }
+    }
+    for (const l of spouseLinks) {
+      gView.append('line')
+        .attr('class', 'spouse-link')
+        .attr('x1', l.x1).attr('y1', l.y1)
+        .attr('x2', l.x2).attr('y2', l.y2);
+    }
+
     const node = gView.selectAll(null)
       .data(cards, (d) => d.id + '|' + d.px + ',' + d.py)
       .join('g')
@@ -234,8 +290,9 @@ export function initTree({ container, controls, index, onSelectNode }) {
         'translate(' + (d.px - NODE_W / 2) + ',' + (d.py - NODE_H / 2) + ')');
     drawCards(node);
 
-    log.info('Vue combinée dessinée : ' + cards.length + ' carte(s), ' +
-      upGen + ' gén. ascendants, ' + downGen + ' gén. descendants');
+    log.info('Vue combinée dessinée : ' + cards.length + ' carte(s) dont ' +
+      usedAsSpouse.size + ' conjoint(s), ' + upGen + ' gén. ascendants, ' +
+      downGen + ' gén. descendants');
   }
 
   log.info('Vue arbre combiné initialisée (' + upGen + '/' + downGen + ' générations)');

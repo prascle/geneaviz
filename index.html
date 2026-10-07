@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>GeneaViz — M3 : arbre combiné ascendants/descendants</title>
+<title>GeneaViz — M4 : arbre combiné avec conjoints</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.4rem; }
@@ -31,8 +31,11 @@
   #tree-controls select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
   #tree-container { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 8px; height: 32rem; background: #fff; }
   .tree-link { fill: none; stroke: #94a3b8; stroke-width: 1.5; }
+  .spouse-link { stroke: #b45309; stroke-width: 1.5; stroke-dasharray: 2 3; }
   .tree-node { cursor: pointer; }
   .tree-node rect { fill: #fff; stroke: #cbd5e1; stroke-width: 1; }
+  .tree-node rect.m { fill: #dbeafe; }
+  .tree-node rect.f { fill: #fce7f3; }
   .tree-node rect.root { stroke: #2563eb; stroke-width: 2; }
   .tree-node rect.est { stroke: #b45309; stroke-dasharray: 4 3; }
   .tree-node text { font-size: 12px; }
@@ -53,7 +56,7 @@
 </script>
 </head>
 <body>
-<h1>GeneaViz — M3 : recherche et arbre combiné ascendants/descendants</h1>
+<h1>GeneaViz — M4 : arbre combiné avec conjoints</h1>
 
 <p>
   <label for="file">Fichier GEDCOM :</label>
