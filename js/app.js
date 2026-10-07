@@ -1,7 +1,7 @@
 /**
- * app.js — Point d'entrée. Jalon M2 :
+ * app.js — Point d'entrée. Jalon M3 :
  * charger un fichier, indexer, estimer les dates, rechercher un individu,
- * afficher son détail et dessiner son arbre des ascendants (D3).
+ * afficher son détail et dessiner son arbre combiné ascendants/descendants (D3).
  */
 import { logger } from './logger.js';
 import { readGedcomFile, parseGedcom } from './gedcomLoader.js';
@@ -12,7 +12,7 @@ import { initTree } from './tree.js';
 import { formatDate } from './utils.js';
 
 const log = logger('app');
-let treeApi = null;   // vue arbre des ascendants (M2)
+let treeApi = null;   // vue arbre combiné (M3)
 const statusEl = document.getElementById('status');
 const outputEl = document.getElementById('output');
 const searchSection = document.getElementById('search-section');
@@ -63,7 +63,7 @@ async function handleFile(file) {
     searchSection.hidden = false;
     detailSection.hidden = false;
 
-    // ---------- Arbre des ascendants (M2) ----------
+    // ---------- Arbre combiné ascendants/descendants (M3) ----------
     treeApi = initTree({
       container: document.getElementById('tree-container'),
       controls: document.getElementById('tree-controls'),
@@ -75,7 +75,7 @@ async function handleFile(file) {
 
     const s = index.stats();
     outputEl.textContent =
-`Statistiques (M2)
+`Statistiques (M3)
   Individus           : ${s.people}
   Familles            : ${s.families}
   Patronymes distincts: ${s.surnames}
@@ -86,7 +86,7 @@ async function handleFile(file) {
 Dans la console :
   genea.searchService.search({ surname: 'DUPONT', given: 'je' })
   genea.index.getIndividual('@I1@')
-  genea.tree.update('@I1@')   — arbre des ascendants`;
+  genea.tree.update('@I1@')   — arbre combiné ascendants/descendants`;
   } catch (err) {
     log.error('Échec du chargement :', err);
     setStatus(`✘ Erreur : ${err.message}`, true);
@@ -102,7 +102,7 @@ Dans la console :
 function showDetails(index, id) {
   const p = index.getIndividual(id);
   if (!p) { detailsEl.textContent = `Individu introuvable : ${id}`; return; }
-  window.genea.state = { rootId: id };   // racine future de l'arbre (M2)
+  window.genea.state = { rootId: id };   // racine de l'arbre (M2/M3)
 
   const dateHtml = (d, livingLabel) => {
     if (!d.value) return d.status === 'living'
@@ -144,4 +144,4 @@ document.getElementById('file').addEventListener('change', (e) => {
   if (file) handleFile(file);
 });
 
-log.info('GeneaViz M2 prêt — sélectionner un fichier .ged');
+log.info('GeneaViz M3 prêt — sélectionner un fichier .ged');
