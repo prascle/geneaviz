@@ -498,7 +498,7 @@ export function initTree({ container, controls, index, onSelectNode }) {
 
     resetView(false);   // chaque nouvelle racine recadre la vue
     log.info('Vue combinée dessinée : ' + out.cards.size + ' carte(s), ' +
-      out.unions.length + ' trait(s) d'union, ' + upGen + ' gén. ascendants, ' +
+      out.unions.length + ' trait(s) d\'union, ' + upGen + ' gén. ascendants, ' +
       downGen + ' gén. descendants');
   }
 
