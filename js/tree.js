@@ -439,14 +439,14 @@ export function initTree({ container, controls, index, onSelectNode }) {
     const out = { cards: [], spouseLinks: [], filiation: [], displayed: new Set([rootId]) };
 
     if (upGen > 0) {
-      const upUnit = buildUpUnit(index, rootId, 0, upGen, new Set([rootId]));
+      const upUnit = buildUpUnit(index, rootId, 0, upGen, new Set());
       placeUp(upUnit, 0, 0, 0, out);
     } else {
       out.cards.push({ id: rootId, key: rootId + '@0,0', person: rootPerson,
                        ghost: false, isRoot: true, cx: NODE_W / 2, cy: 0 });
     }
     if (downGen > 0) {
-      const downUnit = buildDownUnit(index, rootId, 0, downGen, new Set([rootId]));
+      const downUnit = buildDownUnit(index, rootId, 0, downGen, new Set());
       placeDown(downUnit, 0, 0, out);
     } else if (!out.cards.some((c) => c.key === rootId + '@0,0')) {
       out.cards.push({ id: rootId, key: rootId + '@0,0', person: rootPerson,
