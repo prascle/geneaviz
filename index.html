@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>GeneaViz — M1 : recherche d'individus</title>
+<title>GeneaViz — M2 : recherche et arbre des ascendants</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.4rem; }
@@ -26,6 +26,18 @@
   #details td:first-child { color: #666; }
   .est { color: #b45309; font-style: italic; }
   pre { background: #f8f8f8; padding: 1rem; overflow: auto; }
+  #tree-controls { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; color: #555; }
+  #tree-controls select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
+  #tree-container { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 8px; height: 32rem; background: #fff; }
+  .tree-link { fill: none; stroke: #94a3b8; stroke-width: 1.5; }
+  .tree-node { cursor: pointer; }
+  .tree-node rect { fill: #fff; stroke: #cbd5e1; stroke-width: 1; }
+  .tree-node rect.root { stroke: #2563eb; stroke-width: 2; }
+  .tree-node rect.est { stroke: #b45309; stroke-dasharray: 4 3; }
+  .tree-node text { font-size: 12px; }
+  .tree-node .node-name { font-weight: 600; }
+  .tree-node .node-dates { fill: #555; }
+  .tree-node .node-dates.est { fill: #b45309; font-style: italic; }
 </style>
 <script type="importmap">
 {
@@ -40,7 +52,7 @@
 </script>
 </head>
 <body>
-<h1>GeneaViz — M1 : recherche et sélection d'un individu</h1>
+<h1>GeneaViz — M2 : recherche, sélection et arbre des ascendants</h1>
 
 <p>
   <label for="file">Fichier GEDCOM :</label>
@@ -57,6 +69,12 @@
 <section id="detail-section" hidden>
   <h2>Individu sélectionné</h2>
   <div id="details">Aucun individu sélectionné.</div>
+</section>
+
+<section id="tree-section" hidden>
+  <h2>Arbre des ascendants</h2>
+  <div id="tree-controls"></div>
+  <div id="tree-container"></div>
 </section>
 
 <pre id="output"></pre>

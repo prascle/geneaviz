@@ -4,19 +4,25 @@ Application web 100 % client (JavaScript ES modules + HTML) pour l'exploration d
 généalogiques au format GEDCOM. Trois vues prévues : arbre générationnel (D3),
 chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
 
-## État : jalon M0
+## État : jalon M2
 
 - `js/logger.js` — traces module par module, niveaux DEBUG/INFO/WARN/ERROR.
 - `js/utils.js` — parsing/formatage des dates GEDCOM (y compris ABT/BEF/AFT), debounce.
 - `js/gedcomLoader.js` — lecture du fichier (File API) + parsing GEDCOM en mémoire.
 - `js/gedcomIndex.js` — index des individus, familles, patronymes, liens parents/enfants.
 - `js/dateEstimator.js` — estimation des dates manquantes (règles réglables, cf. JSDoc).
+- M1 — `js/search.js` + `js/searchBar.js` : recherche par patronyme/prénom, sélection
+  d'un individu, panneau de détails (dates exactes vs estimées).
+- M2 — `js/tree.js` : arbre générationnel des ascendants (D3) depuis l'individu
+  sélectionné, profondeur réglable, dates estimées mises en évidence (≈, tirets).
 
 ## Utilisation
 
 Ouvrir `index.html` dans un navigateur (un simple serveur local suffit, ex. `python -m http.server`).
-Sélectionner un fichier `.ged`. Les résultats du jalon M0 s'affichent dans la page
-et dans la console : nombre d'individus, familles, patronymes, dates estimées.
+Sélectionner un fichier `.ged`, rechercher un individu (M1) : son détail s'affiche et
+son arbre des ascendants se dessine (M2). Le nombre de générations est réglable
+au-dessus de l'arbre ; molette = zoom, glisser = déplacement. Cliquer un ancêtre
+affiche son détail dans le panneau.
 
 Niveau de trace : ajouter `?log=DEBUG` à l'URL (ou `localStorage.setItem('genea:logLevel','DEBUG')`).
 
@@ -24,7 +30,7 @@ Niveau de trace : ajouter `?log=DEBUG` à l'URL (ou `localStorage.setItem('genea
 
 Après chargement d'un fichier :
 - `genea.index.getIndividual(id)` — fiche individuelle complète.
-- `genea.index.searchByName('DUPONT', 'jean')` — recherche (pré-version M1).
+- `genea.index.searchByName('DUPONT', 'jean')` — recherche par patronyme/prénom (M1).
 - `genea.index.stats()` — statistiques de chargement et d'estimation.
 
 ## Conventions

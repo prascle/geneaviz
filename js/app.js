@@ -1,20 +1,23 @@
 /**
- * app.js — Point d'entrée. Jalon M1 :
+ * app.js — Point d'entrée. Jalon M2 :
  * charger un fichier, indexer, estimer les dates, rechercher un individu,
- * le sélectionner et afficher son détail.
+ * afficher son détail et dessiner son arbre des ascendants (D3).
  */
 import { logger } from './logger.js';
 import { readGedcomFile, parseGedcom } from './gedcomLoader.js';
 import { buildIndex } from './gedcomIndex.js';
 import { initSearch } from './search.js';
 import { initSearchBar } from './searchBar.js';
+import { initTree } from './tree.js';
 import { formatDate } from './utils.js';
 
 const log = logger('app');
+let treeApi = null;   // vue arbre des ascendants (M2)
 const statusEl = document.getElementById('status');
 const outputEl = document.getElementById('output');
 const searchSection = document.getElementById('search-section');
 const detailSection = document.getElementById('detail-section');
+const treeSection = document.getElementById('tree-section');
 const detailsEl = document.getElementById('details');
 
 /**
@@ -55,14 +58,24 @@ async function handleFile(file) {
     initSearchBar({
       container,
       searchService,
-      onSelect: (id) => showDetails(index, id),
+      onSelect: (id) => { showDetails(index, id); treeApi.update(id); },
     });
     searchSection.hidden = false;
     detailSection.hidden = false;
 
+    // ---------- Arbre des ascendants (M2) ----------
+    treeApi = initTree({
+      container: document.getElementById('tree-container'),
+      controls: document.getElementById('tree-controls'),
+      index,
+      onSelectNode: (id) => showDetails(index, id),
+    });
+    window.genea.tree = treeApi;
+    treeSection.hidden = false;
+
     const s = index.stats();
     outputEl.textContent =
-`Statistiques (M1)
+`Statistiques (M2)
   Individus           : ${s.people}
   Familles            : ${s.families}
   Patronymes distincts: ${s.surnames}
@@ -72,7 +85,8 @@ async function handleFile(file) {
 
 Dans la console :
   genea.searchService.search({ surname: 'DUPONT', given: 'je' })
-  genea.index.getIndividual('@I1@')`;
+  genea.index.getIndividual('@I1@')
+  genea.tree.update('@I1@')   — arbre des ascendants`;
   } catch (err) {
     log.error('Échec du chargement :', err);
     setStatus(`✘ Erreur : ${err.message}`, true);
@@ -130,4 +144,4 @@ document.getElementById('file').addEventListener('change', (e) => {
   if (file) handleFile(file);
 });
 
-log.info('GeneaViz M1 prêt — sélectionner un fichier .ged');
+log.info('GeneaViz M2 prêt — sélectionner un fichier .ged');
