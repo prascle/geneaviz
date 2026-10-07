@@ -17,8 +17,10 @@ chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
   sélectionné, profondeur réglable, dates estimées mises en évidence (≈, tirets).
 - M3 — `js/tree.js` : vue combinée — ascendants à gauche, descendants à droite de
   la racine, profondeurs réglables indépendamment (0 à 10 générations de chaque côté).
-- M4 — `js/tree.js` : conjoints des individus affichés (sans doublon, liés par un
-  trait), fond des cartes selon le sexe (bleu clair homme, rose clair femme).
+- M4 — `js/tree.js` : conjoints empilés verticalement (remariages), liens de
+  filiation partant du point d'union du couple, carte fantôme pour conjoint ou
+  parent inconnu, fonds selon le sexe (bleu clair homme, rose clair femme),
+  bouton « Recentrer » (remise à l'échelle de la vue).
 
 ## Utilisation
 

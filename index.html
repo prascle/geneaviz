@@ -29,19 +29,22 @@
   #tree-controls { display: flex; gap: 1.25rem; align-items: center; margin: .5rem 0; color: #555; flex-wrap: wrap; }
   #tree-controls label { display: flex; gap: .35rem; align-items: center; }
   #tree-controls select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
+  #tree-controls button { padding: .3rem .8rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
   #tree-container { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 8px; height: 32rem; background: #fff; }
   .tree-link { fill: none; stroke: #94a3b8; stroke-width: 1.5; }
-  .spouse-link { stroke: #b45309; stroke-width: 1.5; stroke-dasharray: 2 3; }
+  .spouse-link { stroke: #b45309; stroke-width: 1.5; }
   .tree-node { cursor: pointer; }
   .tree-node rect { fill: #fff; stroke: #cbd5e1; stroke-width: 1; }
   .tree-node rect.m { fill: #dbeafe; }
   .tree-node rect.f { fill: #fce7f3; }
   .tree-node rect.root { stroke: #2563eb; stroke-width: 2; }
   .tree-node rect.est { stroke: #b45309; stroke-dasharray: 4 3; }
+  .tree-node rect.ghost { fill: #fafafa; stroke: #cbd5e1; stroke-dasharray: 3 3; }
   .tree-node text { font-size: 12px; }
   .tree-node .node-name { font-weight: 600; }
   .tree-node .node-dates { fill: #555; }
   .tree-node .node-dates.est { fill: #b45309; font-style: italic; }
+  .tree-node .node-dates.ghost-label { fill: #999; font-style: italic; }
 </style>
 <script type="importmap">
 {
