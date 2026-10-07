@@ -4,7 +4,7 @@ Application web 100 % client (JavaScript ES modules + HTML) pour l'exploration d
 généalogiques au format GEDCOM. Trois vues prévues : arbre générationnel (D3),
 chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
 
-## État : jalon M3
+## État : jalon M4
 
 - `js/logger.js` — traces module par module, niveaux DEBUG/INFO/WARN/ERROR.
 - `js/utils.js` — parsing/formatage des dates GEDCOM (y compris ABT/BEF/AFT), debounce.
@@ -17,6 +17,10 @@ chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
   sélectionné, profondeur réglable, dates estimées mises en évidence (≈, tirets).
 - M3 — `js/tree.js` : vue combinée — ascendants à gauche, descendants à droite de
   la racine, profondeurs réglables indépendamment (0 à 10 générations de chaque côté).
+- M4 — `js/tree.js` : conjoints empilés verticalement (remariages), liens de
+  filiation partant du point d'union du couple, carte fantôme pour conjoint ou
+  parent inconnu, fonds selon le sexe (bleu clair homme, rose clair femme),
+  bouton « Recentrer » (remise à l'échelle de la vue).
 
 ## Utilisation
 
