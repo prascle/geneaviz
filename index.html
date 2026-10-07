@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>GeneaViz — M2 : recherche et arbre des ascendants</title>
+<title>GeneaViz — M3 : arbre combiné ascendants/descendants</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.4rem; }
@@ -26,7 +26,8 @@
   #details td:first-child { color: #666; }
   .est { color: #b45309; font-style: italic; }
   pre { background: #f8f8f8; padding: 1rem; overflow: auto; }
-  #tree-controls { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; color: #555; }
+  #tree-controls { display: flex; gap: 1.25rem; align-items: center; margin: .5rem 0; color: #555; flex-wrap: wrap; }
+  #tree-controls label { display: flex; gap: .35rem; align-items: center; }
   #tree-controls select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
   #tree-container { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 8px; height: 32rem; background: #fff; }
   .tree-link { fill: none; stroke: #94a3b8; stroke-width: 1.5; }
@@ -52,7 +53,7 @@
 </script>
 </head>
 <body>
-<h1>GeneaViz — M2 : recherche, sélection et arbre des ascendants</h1>
+<h1>GeneaViz — M3 : recherche et arbre combiné ascendants/descendants</h1>
 
 <p>
   <label for="file">Fichier GEDCOM :</label>
@@ -72,7 +73,7 @@
 </section>
 
 <section id="tree-section" hidden>
-  <h2>Arbre des ascendants</h2>
+  <h2>Arbre combiné ascendants / descendants</h2>
   <div id="tree-controls"></div>
   <div id="tree-container"></div>
 </section>
