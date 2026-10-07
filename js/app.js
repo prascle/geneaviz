@@ -1,15 +1,21 @@
 /**
- * app.js — Point d'entrée. Jalon M0 :
- * charger un fichier, indexer, estimer les dates, afficher les statistiques.
+ * app.js — Point d'entrée. Jalon M1 :
+ * charger un fichier, indexer, estimer les dates, rechercher un individu,
+ * le sélectionner et afficher son détail.
  */
 import { logger } from './logger.js';
 import { readGedcomFile, parseGedcom } from './gedcomLoader.js';
 import { buildIndex } from './gedcomIndex.js';
+import { initSearch } from './search.js';
+import { initSearchBar } from './searchBar.js';
 import { formatDate } from './utils.js';
 
 const log = logger('app');
 const statusEl = document.getElementById('status');
 const outputEl = document.getElementById('output');
+const searchSection = document.getElementById('search-section');
+const detailSection = document.getElementById('detail-section');
+const detailsEl = document.getElementById('details');
 
 /**
  * Affiche un message de statut dans la page.
@@ -22,7 +28,8 @@ function setStatus(msg, isError = false) {
 }
 
 /**
- * Traite un fichier GEDCOM sélectionné : lecture → parsing → index → estimation.
+ * Traite un fichier GEDCOM sélectionné : lecture → parsing → index → estimation,
+ * puis active la recherche.
  * @param {File} file
  * @returns {Promise<void>}
  */
@@ -36,14 +43,26 @@ async function handleFile(file) {
     const index = buildIndex(parsed);
     const dt = performance.now() - t0;
 
-    window.genea = { index };   // inspection en console
+    const searchService = initSearch(index);
+    window.genea = { index, searchService };   // inspection console
     setStatus(`✔ ${file.name} chargé en ${dt.toFixed(0)} ms — ` +
-      `${index.peopleCount} individus, ${index.familyCount} familles.`);
-    log.info(`Fichier chargé : ${index.peopleCount} individus en ${dt.toFixed(0)} ms`);
+      `${index.peopleCount} individus, ${index.familyCount} familles, ` +
+      `${index.surnameCount} patronymes.`);
+
+    // ---------- Barre de recherche (M1) ----------
+    const container = document.getElementById('search-container');
+    container.innerHTML = '';
+    initSearchBar({
+      container,
+      searchService,
+      onSelect: (id) => showDetails(index, id),
+    });
+    searchSection.hidden = false;
+    detailSection.hidden = false;
 
     const s = index.stats();
     outputEl.textContent =
-`Statistiques (M0)
+`Statistiques (M1)
   Individus           : ${s.people}
   Familles            : ${s.families}
   Patronymes distincts: ${s.surnames}
@@ -51,11 +70,8 @@ async function handleFile(file) {
   Décès estimés       : ${s.deathEstimated}
   Vivants présumés    : ${s.livingAssumed}
 
-Exemples d'individus (dates estimées repérées « ≈ » / statut) :
-${samplePeople(index).join('\n')}
-
 Dans la console :
-  genea.index.searchByName('PATRONYME', 'prénom')
+  genea.searchService.search({ surname: 'DUPONT', given: 'je' })
   genea.index.getIndividual('@I1@')`;
   } catch (err) {
     log.error('Échec du chargement :', err);
@@ -64,23 +80,49 @@ Dans la console :
 }
 
 /**
- * Produit quelques lignes d'exemple d'individus (les 15 premiers).
- * @param {Object} index
- * @returns {string[]}
+ * Affiche le détail complet d'un individu dans le panneau dédié.
+ * @param {Object} index - index applicatif
+ * @param {string} id - xref de l'individu sélectionné
+ * @returns {void}
  */
-function samplePeople(index) {
-  return [...Array(15).keys()].map(i => {
-    const p = index.getIndividual(`@I${i + 1}@`);
-    if (!p) return null;
-    const birth = p.birth.value
-      ? (p.birth.status === 'estimated' ? '≈ ' : '') + formatDate(p.birth.value)
-      : p.birth.status === 'living' ? '' : '—';
-    const death = p.death.value
-      ? (p.death.status === 'estimated' ? '≈ ' : '') + formatDate(p.death.value)
-      : p.death.status === 'living' ? 'vivant' : '—';
-    return `  ${p.name.surname.toUpperCase()} ${p.name.given} (${p.sex ?? '?'}) ` +
-           `${birth} → ${death}`;
-  }).filter(Boolean);
+function showDetails(index, id) {
+  const p = index.getIndividual(id);
+  if (!p) { detailsEl.textContent = `Individu introuvable : ${id}`; return; }
+  window.genea.state = { rootId: id };   // racine future de l'arbre (M2)
+
+  const dateHtml = (d, livingLabel) => {
+    if (!d.value) return d.status === 'living'
+      ? `<em>${livingLabel}</em>`
+      : '<span title="inconnue">—</span>';
+    const cls = d.status === 'estimated' ? ' class="est" title="date estimée"' : '';
+    return `<span${cls}>${d.status === 'estimated' ? '≈ ' : ''}${formatDate(d.value)}</span>`
+      + (d.status === 'estimated' && d.estimatedFrom ? ` <small>(${d.estimatedFrom})</small>` : '');
+  };
+
+  const famRows = [];
+  for (const fid of p.familyAsSpouse) {
+    const fam = index.getFamily(fid);
+    if (!fam) continue;
+    const spouseId = fam.husband === id ? fam.wife : fam.husband;
+    const spouse = spouseId ? index.getIndividual(spouseId) : null;
+    const spouseLabel = spouse
+      ? `${spouse.name.surname.toUpperCase()} ${spouse.name.given}`
+      : '(inconnu·e)';
+    famRows.push(`<tr><td>Famille</td><td>Union avec <strong>${spouseLabel}</strong>`
+      + (fam.marriage.value ? ` — mariage ${dateHtml(fam.marriage, '?')}` : '')
+      + (fam.children.length ? ` — ${fam.children.length} enfant(s)` : '')
+      + `</td></tr>`);
+  }
+
+  detailsEl.innerHTML = `<table>
+    <tr><td>Identité</td><td><strong>${(p.name.surname || '?').toUpperCase()} ${p.name.given}</strong>${p.name.suffix ? ' ' + p.name.suffix : ''}</td></tr>
+    <tr><td>Sexe</td><td>${p.sex === 'M' ? 'Masculin' : p.sex === 'F' ? 'Féminin' : 'Inconnu'}</td></tr>
+    <tr><td>Naissance</td><td>${dateHtml(p.birth, 'vivant·e (présumé)')}</td></tr>
+    <tr><td>Décès</td><td>${dateHtml(p.death, 'vivant·e (présumé)')}</td></tr>
+    ${famRows.join('')}
+    <tr><td>Identifiant</td><td><code>${p.id}</code></td></tr>
+  </table>`;
+  log.info(`Détail affiché pour ${p.id}`);
 }
 
 document.getElementById('file').addEventListener('change', (e) => {
@@ -88,4 +130,4 @@ document.getElementById('file').addEventListener('change', (e) => {
   if (file) handleFile(file);
 });
 
-log.info('GeneaViz M0 prêt — sélectionner un fichier .ged');
+log.info('GeneaViz M1 prêt — sélectionner un fichier .ged');

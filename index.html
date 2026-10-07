@@ -2,12 +2,29 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>GeneaViz — M0 : chargement GEDCOM</title>
+<title>GeneaViz — M1 : recherche d'individus</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 1.5rem; }
   #status { margin: 1rem 0; padding: .75rem 1rem; background: #f4f6f8; border-radius: 6px; }
   #status.error { background: #fde8e8; }
+  .search-fields { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .search-fields input { padding: .5rem; border: 1px solid #ccc; border-radius: 6px; min-width: 12rem; }
+  .search-fields button { padding: .5rem 1rem; border: none; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; }
+  .search-status { color: #555; margin: .5rem 0; }
+  .search-results { list-style: none; padding: 0; margin: 0; }
+  .search-result { display: flex; justify-content: space-between; gap: 1rem;
+    padding: .5rem .75rem; border: 1px solid #e5e7eb; border-radius: 6px;
+    margin-bottom: .35rem; cursor: pointer; }
+  .search-result:hover { background: #f0f7ff; }
+  .search-result.selected { background: #dbeafe; border-color: #2563eb; }
+  .result-dates { color: #555; white-space: nowrap; }
+  #details { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin-top: .5rem; }
+  #details table { border-collapse: collapse; }
+  #details td { padding: .25rem .75rem .25rem 0; vertical-align: top; }
+  #details td:first-child { color: #666; }
+  .est { color: #b45309; font-style: italic; }
   pre { background: #f8f8f8; padding: 1rem; overflow: auto; }
 </style>
 <script type="importmap">
@@ -23,7 +40,7 @@
 </script>
 </head>
 <body>
-<h1>GeneaViz — M0 : chargement et indexation d'un fichier GEDCOM</h1>
+<h1>GeneaViz — M1 : recherche et sélection d'un individu</h1>
 
 <p>
   <label for="file">Fichier GEDCOM :</label>
@@ -31,6 +48,17 @@
 </p>
 
 <div id="status">En attente d'un fichier…</div>
+
+<section id="search-section" hidden>
+  <h2>Rechercher un individu</h2>
+  <div id="search-container"></div>
+</section>
+
+<section id="detail-section" hidden>
+  <h2>Individu sélectionné</h2>
+  <div id="details">Aucun individu sélectionné.</div>
+</section>
+
 <pre id="output"></pre>
 
 <script type="module" src="./js/app.js"></script>
