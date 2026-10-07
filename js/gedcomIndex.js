@@ -136,6 +136,12 @@ function makeIndexApi({ people, families, surnameIndex, estimationStats }) {
     getIndividual(id) { return people.get(id) ?? null; },
 
     /**
+     * Toutes les fiches individus normalisées (itération pour la recherche).
+     * @returns {Object[]} individus (références directes, ne pas muter)
+     */
+    getAllPeople() { return [...people.values()]; },
+
+    /**
      * Liste des patronymes présents dans le fichier.
      * @returns {string[]} patronymes normalisés, triés
      */
