@@ -2,6 +2,7 @@
  * app.js — Point d'entrée. Jalon M3 :
  * charger un fichier, indexer, estimer les dates, rechercher un individu,
  * afficher son détail et dessiner son arbre combiné ascendants/descendants (D3).
+ * Jalon M5 : vue chronologique (frise des vies).
  */
 import { logger } from './logger.js';
 import { readGedcomFile, parseGedcom } from './gedcomLoader.js';
@@ -9,15 +10,18 @@ import { buildIndex } from './gedcomIndex.js';
 import { initSearch } from './search.js';
 import { initSearchBar } from './searchBar.js';
 import { initTree } from './tree.js';
+import { initTimeline } from './timeline.js';
 import { formatDate } from './utils.js';
 
 const log = logger('app');
 let treeApi = null;   // vue arbre combiné (M3)
+let timelineApi = null;   // vue chronologique (M5)
 const statusEl = document.getElementById('status');
 const outputEl = document.getElementById('output');
 const searchSection = document.getElementById('search-section');
 const detailSection = document.getElementById('detail-section');
 const treeSection = document.getElementById('tree-section');
+const timelineSection = document.getElementById('timeline-section');
 const detailsEl = document.getElementById('details');
 
 /**
@@ -58,7 +62,7 @@ async function handleFile(file) {
     initSearchBar({
       container,
       searchService,
-      onSelect: (id) => { showDetails(index, id); treeApi.update(id); },
+      onSelect: (id) => { showDetails(index, id); treeApi.update(id); timelineApi.update(id); },
     });
     searchSection.hidden = false;
     detailSection.hidden = false;
@@ -73,6 +77,17 @@ async function handleFile(file) {
     window.genea.tree = treeApi;
     treeSection.hidden = false;
 
+    // ---------- Vue chronologique (M5) ----------
+    timelineApi = initTimeline({
+      container: document.getElementById('timeline-container'),
+      controls: document.getElementById('timeline-controls'),
+      index,
+      onSelectPerson: (id) => { showDetails(index, id); treeApi.update(id); timelineApi.update(id); },
+    });
+    window.genea.timeline = timelineApi;
+    timelineSection.hidden = false;
+    timelineApi.update(null);   // frise vide tant qu'aucune sélection
+
     const s = index.stats();
     outputEl.textContent =
 `Statistiques (M3)
@@ -86,7 +101,8 @@ async function handleFile(file) {
 Dans la console :
   genea.searchService.search({ surname: 'DUPONT', given: 'je' })
   genea.index.getIndividual('@I1@')
-  genea.tree.update('@I1@')   — arbre combiné ascendants/descendants`;
+  genea.tree.update('@I1@')   — arbre combiné ascendants/descendants
+  genea.timeline.update('@I1@')   — frise chronologique`;
   } catch (err) {
     log.error('Échec du chargement :', err);
     setStatus(`✘ Erreur : ${err.message}`, true);
@@ -144,4 +160,4 @@ document.getElementById('file').addEventListener('change', (e) => {
   if (file) handleFile(file);
 });
 
-log.info('GeneaViz M3 prêt — sélectionner un fichier .ged');
+log.info('GeneaViz M5 prêt — sélectionner un fichier .ged');

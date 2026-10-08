@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>GeneaViz — M4 : arbre combiné avec conjoints</title>
+<title>GeneaViz — M5 : arbre combiné avec conjoints, timeline</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.4rem; }
@@ -53,6 +53,19 @@
   .tree-tip .tip-dates { color: #555; }
   .tree-tip .tip-fam { color: #555; }
   .tree-tip .tip-id { color: #999; font-size: 11px; }
+  #timeline-controls { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; color: #555; }
+  #timeline-controls select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
+  #timeline-container { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+  .tl-grid { stroke: #e5e7eb; stroke-width: 1; }
+  .tl-tick { font-size: 11px; fill: #666; }
+  .tl-row { cursor: pointer; }
+  .tl-name { font-size: 11px; fill: #333; }
+  .tl-row:hover .tl-name { fill: #2563eb; font-weight: 600; }
+  .tl-bar { stroke: #2563eb; stroke-width: 10; stroke-linecap: round; }
+  .tl-bar:hover { stroke-width: 12; }
+  .tl-bar.est { stroke: #b45309; stroke-dasharray: 6 4; }
+  .tl-bar.root { stroke: #16a34a; stroke-width: 12; }
+  .tl-arrow { fill: #2563eb; } 
 </style>
 <script type="importmap">
 {
@@ -90,6 +103,12 @@
   <h2>Arbre combiné ascendants / descendants</h2>
   <div id="tree-controls"></div>
   <div id="tree-container"></div>
+</section>
+
+<section id="timeline-section" hidden>
+  <h2>Vue chronologique</h2>
+  <div id="timeline-controls"></div>
+  <div id="timeline-container"></div>
 </section>
 
 <pre id="output"></pre>
