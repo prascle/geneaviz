@@ -151,6 +151,20 @@ export function initTree({ container, controls, index, onSelectNode }) {
     .on('zoom', (event) => gZoom.attr('transform', event.transform));
   svg.call(zoomBeh);
 
+  // Infobulle de survol (M4.1)
+  let tip = d3.select('body').select('div.tree-tip');
+  if (tip.empty()) tip = d3.select('body').append('div').attr('class', 'tree-tip');
+
+  /** Positionne l'infobulle près du curseur, sans sortir de la fenêtre. */
+  function positionTip(event) {
+    const node = tip.node();
+    const w = node.offsetWidth, h = node.offsetHeight;
+    let x = event.clientX + 14, y = event.clientY + 14;
+    if (x + w > window.innerWidth - 8) x = event.clientX - w - 14;
+    if (y + h > window.innerHeight - 8) y = event.clientY - h - 14;
+    tip.style('left', x + 'px').style('top', y + 'px');
+  }
+
   /** Ajuste zoom et translation pour voir tout le graphe. */
   function resetView(animated = true) {
     let t = d3.zoomIdentity.translate(container.clientWidth / 2 - NODE_W / 2,
@@ -197,6 +211,33 @@ export function initTree({ container, controls, index, onSelectNode }) {
       .on('click', () => resetView(true));
   }
 
+  /** Contenu HTML compact de l'infobulle pour un individu. */
+  function buildTooltipHtml(person) {
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
+      (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const dHtml = (d) => yearLabel(d)
+      + (d.status === 'estimated' && d.estimatedFrom
+          ? ` <small>(${esc(d.estimatedFrom)})</small>` : '');
+
+    const rows = [
+      `<div class="tip-name">${esc((person.name.surname || '?').toUpperCase())} ${esc(person.name.given)}</div>`,
+      `<div class="tip-dates">naissance ${dHtml(person.birth)} · décès ${dHtml(person.death)}</div>`,
+    ];
+    for (const famId of person.familyAsSpouse) {
+      const fam = index.getFamily(famId);
+      if (!fam) continue;
+      const sid = fam.husband === person.id ? fam.wife : fam.husband;
+      const sp = sid ? index.getIndividual(sid) : null;
+      const label = sp
+        ? `${esc(sp.name.surname.toUpperCase())} ${esc(sp.name.given)}`
+        : 'inconnu·e';
+      rows.push(`<div class="tip-fam">union : ${label}`
+        + (fam.children.length ? ` — ${fam.children.length} enfant(s)` : '') + '</div>');
+    }
+    rows.push(`<div class="tip-id">${esc(person.id)}</div>`);
+    return rows.join('');
+  }
+
   /** Ajoute rect + textes + clic à une sélection de cartes. */
   function drawCards(sel) {
     sel.append('rect')
@@ -228,7 +269,13 @@ export function initTree({ container, controls, index, onSelectNode }) {
       .on('click', (event, d) => {
         log.debug('Clic sur ' + d.id);
         if (onSelectNode) onSelectNode(d.id);
-      });
+      })
+      .on('pointerover', (event, d) => {
+        tip.html(buildTooltipHtml(d.person)).style('display', 'block');
+        positionTip(event);
+      })
+      .on('pointermove', positionTip)
+      .on('pointerout', () => tip.style('display', 'none'));
   }
 
   /* ---------- layout descendant : individu + conjoints empilés ---------- */
@@ -447,6 +494,7 @@ export function initTree({ container, controls, index, onSelectNode }) {
   function update(rootId) {
     if (!rootId) return;
     currentRootId = rootId;
+    tip.style('display', 'none');   // fermer l'infobulle au redessin
     gView.selectAll('*').remove();
 
     const rootPerson = index.getIndividual(rootId);
