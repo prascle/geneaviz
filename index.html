@@ -45,6 +45,14 @@
   .tree-node .node-dates { fill: #555; }
   .tree-node .node-dates.est { fill: #b45309; font-style: italic; }
   .tree-node .node-dates.ghost-label { fill: #999; font-style: italic; }
+  .tree-tip { position: fixed; z-index: 1000; display: none; max-width: 22rem;
+    background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
+    padding: .6rem .8rem; box-shadow: 0 4px 14px rgba(0,0,0,.12);
+    pointer-events: none; font-size: 13px; line-height: 1.45; }
+  .tree-tip .tip-name { font-weight: 600; }
+  .tree-tip .tip-dates { color: #555; }
+  .tree-tip .tip-fam { color: #555; }
+  .tree-tip .tip-id { color: #999; font-size: 11px; }
 </style>
 <script type="importmap">
 {
