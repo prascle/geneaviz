@@ -79,7 +79,10 @@ export function initSearchBar({ container, searchService, onSelect }) {
       resultsEl.innerHTML = '';
       return;
     }
-    statusEl.textContent = `${results.length} individu(s) trouvé(s) — cliquez pour sélectionner :`;
+    const total = results.total ?? results.length;
+    statusEl.textContent = total > results.length
+      ? `${results.length} individu(s) affiché(s) sur ${total} — affinez la recherche. Cliquez pour sélectionner :`
+      : `${results.length} individu(s) trouvé(s) — cliquez pour sélectionner :`;
     resultsEl.innerHTML = results.map(r => `
       <li data-id="${r.id}" class="search-result ${r.id === selectedId ? 'selected' : ''} sex-${r.sex ?? 'U'}">
         <span class="result-name">${(r.surname || '?').toUpperCase()} ${r.given}</span>

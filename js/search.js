@@ -75,7 +75,7 @@ export function initSearch(index) {
       if (ng) {
         const [first, ...rest] = e.normGivens;
         if (first === ng) givenScore = 3;
-        else if (first.startsWith(ng)) givenScore = 2;
+        else if (first && first.startsWith(ng)) givenScore = 2;
         else if (rest.some(g => g === ng)) givenScore = 2;
         else if (e.normGivens.some(g => g.startsWith(ng) || g.includes(ng))) givenScore = 1;
         else if (ns) continue;              // prénom demandé mais non correspondant
@@ -88,6 +88,7 @@ export function initSearch(index) {
     results.sort((a, b) => b.score - a.score ||
       (a.birth.value?.year ?? 9999) - (b.birth.value?.year ?? 9999));
     const trimmed = results.slice(0, MAX_RESULTS);
+    trimmed.total = results.length;   // total avant troncature (pour l'affichage)
     log.info(`Recherche "${surname}" + "${given}": ${results.length} trouvé(s), ${trimmed.length} affiché(s)`);
     return trimmed;
   }
