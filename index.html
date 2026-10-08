@@ -53,19 +53,21 @@
   .tree-tip .tip-dates { color: #555; }
   .tree-tip .tip-fam { color: #555; }
   .tree-tip .tip-id { color: #999; font-size: 11px; }
-  #timeline-controls { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; color: #555; }
-  #timeline-controls select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
-  #timeline-container { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
-  .tl-grid { stroke: #e5e7eb; stroke-width: 1; }
-  .tl-tick { font-size: 11px; fill: #666; }
-  .tl-row { cursor: pointer; }
-  .tl-name { font-size: 11px; fill: #333; }
-  .tl-row:hover .tl-name { fill: #2563eb; font-weight: 600; }
-  .tl-bar { stroke: #2563eb; stroke-width: 10; stroke-linecap: round; }
-  .tl-bar:hover { stroke-width: 12; }
-  .tl-bar.est { stroke: #b45309; stroke-dasharray: 6 4; }
-  .tl-bar.root { stroke: #16a34a; stroke-width: 12; }
-  .tl-arrow { fill: #2563eb; } 
+  #timeline-controls { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; color: #555; font-size: .85rem; }
+  #timeline-container { overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+  .tl-grid { stroke: #eef1f4; stroke-width: 1; }
+  .tl-tick { font-size: 10px; fill: #666; }
+  .tl-box { cursor: pointer; }
+  .tl-box rect { fill: #fff; stroke: #cbd5e1; stroke-width: 1; }
+  .tl-box rect.m { fill: #dbeafe; }
+  .tl-box rect.f { fill: #fce7f3; }
+  .tl-box rect.root { stroke: #2563eb; stroke-width: 2; }
+  .tl-box rect.est { stroke: #b45309; stroke-dasharray: 4 3; }
+  .tl-box rect.alive { stroke-dasharray: 2 2; }
+  .tl-box text { font-size: 10px; fill: #1f2937; pointer-events: none; }
+  .tl-box:hover rect { stroke: #2563eb; }
+  .tl-link { fill: none; stroke: #94a3b8; stroke-width: 1.2; }
+  .tl-marry { stroke: #b45309; stroke-width: 2; }
 </style>
 <script type="importmap">
 {

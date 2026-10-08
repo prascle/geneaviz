@@ -1,18 +1,17 @@
 /**
- * timeline.js — Jalon M5 : vue chronologique (frise des vies).
+ * timeline.js — Jalon M5 v2 : vue chronologique généalogique.
  *
- * Chaque individu du périmètre est une barre horizontale allant de son
- * année de naissance à son année de décès :
- *  - dates connues   : barre pleine (fond selon le sexe) ;
- *  - dates estimées  : barre en tirets orangés (préfixe ≈ dans les étiquettes) ;
- *  - vivant présumé  : barre prolongée jusqu'à l'année courante, flèche.
+ * L'arbre combiné (ascendants/descendants/conjoints) est « déformé » sur
+ * l'axe du temps :
+ *  - X : temps — chaque boîte va de la naissance au décès (tirets si date
+ *    estimée, flèche jusqu'à aujourd'hui si vivant présumé) ;
+ *  - Y : bandes de générations (ascendants en haut, racine, descendants
+ *    en bas) ; les conjoints occupent la bande de leur époux/épouse ;
+ *  - liens de filiation partant de la date de mariage quand elle est
+ *    connue (sinon : moyenne des naissances des parents + 25 ans) ;
+ *  - anti-chevauchement : packing d'intervalles en sous-lignes par bande.
  *
- * Périmètre : « arbre courant » (racine sélectionnée + ascendants et
- * descendants aux mêmes profondeurs que la vue arbre + conjoints) ou
- * « tout le fichier ». Tri par année de naissance croissante.
- *
- * Interactions : zoom horizontal (molette), glisser ; clic sur une barre
- * → callback (détail + recentrage de l'arbre) ; racine surlignée.
+ * Tooltip au survol (détail complet), clic → callback de sélection.
  */
 import * as d3 from 'd3';
 import { logger } from './logger.js';
@@ -21,203 +20,299 @@ import { buildAncestorTree, buildDescendantTree } from './tree.js';
 const log = logger('timeline');
 
 /** Dimensions du layout (px). */
-const NAME_W = 190;   // colonne des noms à gauche
-const ROW_H = 20;     // hauteur d'une ligne de vie
-const HEADER_H = 28;  // espace pour l'axe temporel
-const PAD = 12;
+const ROW_H = 18;      // hauteur d'une ligne de vie
+const BOX_GAP = 6;     // écart horizontal minimum entre boîtes d'une même ligne
+const MIN_BOX_W = 16;  // largeur minimale d'une boîte
+const BAND_GAP = 26;   // espace vertical entre bandes (passage des filiations)
+const TOP_PAD = 26;    // place pour l'axe des années
 
 /**
- * Initialise la vue chronologique.
+ * Initialise la vue chronologique généalogique.
  * @param {Object} options
  * @param {HTMLElement} options.container - élément hôte du SVG
- * @param {HTMLElement} [options.controls] - conteneur du sélecteur de périmètre
+ * @param {HTMLElement} [options.controls] - conteneur des infos/contrôles
  * @param {Object} options.index - index applicatif
- * @param {number} [options.upGen=6] - générations d'ascendants (périmètre « arbre »)
+ * @param {number} [options.upGen=6] - générations d'ascendants
  * @param {number} [options.downGen=6] - générations de descendants
- * @param {Function} [options.onSelectPerson] - callback clic sur une barre
- * @returns {{update: Function, getScope: Function}} API de la vue
+ * @param {Function} [options.onSelectPerson] - callback clic sur une boîte
+ * @returns {{update: Function}} API de la vue
  */
 export function initTimeline({ container, controls, index, upGen = 6, downGen = 6, onSelectPerson }) {
   container.innerHTML = '';
-  let scope = 'tree';          // 'tree' | 'all'
   let currentRootId = null;
 
   const svg = d3.select(container).append('svg')
-    .attr('width', '100%')
-    .attr('height', '100%');
+    .attr('width', '100%');
   const gZoom = svg.append('g');
-  const gAxis = gZoom.append('g');   // axe temporel (suit le zoom)
-  const gRows = gZoom.append('g');
+  const gView = gZoom.append('g');
 
-  const zoomBeh = d3.zoom()
-    .scaleExtent([0.3, 40])
-    .on('zoom', (event) => {
-      gZoom.attr('transform',
-        `translate(${event.transform.x},${HEADER_H}) scale(${event.transform.k},1)`);
-    });
+  const zoomBeh = d3.zoom().scaleExtent([0.15, 20])
+    .on('zoom', (event) => gZoom.attr('transform', event.transform));
   svg.call(zoomBeh);
+
+  // infobulle partagée avec l'arbre (même classe, même style)
+  let tip = d3.select('body').select('div.tree-tip');
+  if (tip.empty()) tip = d3.select('body').append('div').attr('class', 'tree-tip');
+  const positionTip = (event) => {
+    const node = tip.node();
+    const w = node.offsetWidth, h = node.offsetHeight;
+    let x = event.clientX + 14, y = event.clientY + 14;
+    if (x + w > window.innerWidth - 8) x = event.clientX - w - 14;
+    if (y + h > window.innerHeight - 8) y = event.clientY - h - 14;
+    tip.style('left', x + 'px').style('top', y + 'px');
+  };
 
   if (controls) {
     controls.innerHTML = '';
-    const wrap = d3.select(controls);
-    wrap.append('span').text('Périmètre :');
-    const sel = wrap.append('select');
-    sel.selectAll('option')
-      .data([['tree', 'arbre courant'], ['all', 'tout le fichier']])
-      .join('option')
-      .attr('value', (d) => d[0])
-      .text((d) => d[1]);
-    sel.on('change', () => { scope = sel.node().value; update(currentRootId); });
+    d3.select(controls).append('span')
+      .text('Axe horizontal = temps · molette = zoom · glisser = déplacer · survol = détail');
   }
 
-  /** Ensemble des ids du périmètre courant (arbre : ascendants+descendants+conjoints). */
-  function collectIds(rootId) {
-    const ids = new Set();
-    const addTree = (data) => {
+  /** Contenu HTML de l'infobulle (complet : dates, unions, enfants). */
+  function buildTooltipHtml(p) {
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
+      (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const dHtml = (d) => {
+      if (!d.value) return d.status === 'living' ? 'vivant·e' : '—';
+      return (d.status === 'estimated' ? '≈ ' : '') + d.value.year
+        + (d.estimatedFrom ? ` <small>(${esc(d.estimatedFrom)})</small>` : '');
+    };
+    const rows = [
+      `<div class="tip-name">${esc((p.name.surname || '?').toUpperCase())} ${esc(p.name.given)}</div>`,
+      `<div class="tip-dates">naissance ${dHtml(p.birth)} · décès ${dHtml(p.death)}</div>`,
+    ];
+    for (const famId of p.familyAsSpouse) {
+      const fam = index.getFamily(famId);
+      if (!fam) continue;
+      const sid = fam.husband === p.id ? fam.wife : fam.husband;
+      const sp = sid ? index.getIndividual(sid) : null;
+      rows.push(`<div class="tip-fam">union : ${sp
+        ? `${esc(sp.name.surname.toUpperCase())} ${esc(sp.name.given)}` : 'inconnu·e'}`
+        + (fam.marriage.value ? ` — mariage ${dHtml(fam.marriage)}` : '')
+        + (fam.children.length ? ` — ${fam.children.length} enfant(s)` : '') + '</div>');
+    }
+    rows.push(`<div class="tip-id">${esc(p.id)}</div>`);
+    return rows.join('');
+  }
+
+  /** Collecte les individus du périmètre avec leur bande (depth signée). */
+  function collectPersons(rootId) {
+    const map = new Map();   // id -> {person, depth}
+    const addWalk = (data, sign) => {
       if (!data) return;
       (function walk(n) {
-        ids.add(n.id);
-        const person = index.getIndividual(n.id);
-        if (person) {
-          // conjoints des membres de l'arbre
-          for (const famId of person.familyAsSpouse) {
-            const fam = index.getFamily(famId);
-            if (!fam) continue;
-            const sid = fam.husband === n.id ? fam.wife : fam.husband;
-            if (sid && index.getIndividual(sid)) ids.add(sid);
-          }
-        }
+        const depth = sign * (n.gen - 1);
+        if (!map.has(n.id)) map.set(n.id, { person: n.person, depth });
         n.children.forEach(walk);
       })(data);
     };
-    addTree(buildAncestorTree(index, rootId, upGen));
-    addTree(buildDescendantTree(index, rootId, downGen));
-    return ids;
-  }
-
-  /** Ligne de vie dérivée d'un individu (bornes de barre). */
-  function lifeSpan(person, nowYear) {
-    const b = person.birth, d = person.death;
-    const bYear = b.value?.year ?? null;
-    const dYear = d.value?.year ?? null;
-    let x1 = bYear, x2 = dYear, estimated = false, alive = false;
-
-    if (bYear != null && dYear != null) {
-      estimated = b.status === 'estimated' || d.status === 'estimated';
-    } else if (bYear != null) {
-      x2 = d.status === 'living' ? nowYear : bYear + 100;
-      alive = d.status === 'living';
-      estimated = b.status === 'estimated' || d.status !== 'living';
-    } else if (dYear != null) {
-      x1 = dYear - 100;
-      estimated = true;
-    } else {
-      return null;   // aucune date du tout : hors frise
+    addWalk(buildAncestorTree(index, rootId, upGen), -1);
+    addWalk(buildDescendantTree(index, rootId, downGen), +1);
+    if (!map.has(rootId)) {
+      const p = index.getIndividual(rootId);
+      if (p) map.set(rootId, { person: p, depth: 0 });
     }
-    if (x2 < x1) x2 = x1 + 1;
-    return { x1, x2, estimated, alive };
+    // conjoints : même bande que leur époux/épouse
+    for (const { person, depth } of [...map.values()]) {
+      for (const famId of person.familyAsSpouse) {
+        const fam = index.getFamily(famId);
+        if (!fam) continue;
+        const sid = fam.husband === person.id ? fam.wife : fam.husband;
+        if (sid && !map.has(sid)) {
+          const sp = index.getIndividual(sid);
+          if (sp) map.set(sid, { person: sp, depth });
+        }
+      }
+    }
+    return map;
   }
 
-  /** Dessine la frise pour la racine donnée (ou tout le fichier). */
+  /** Bornes temporelles d'un individu ; null si aucune date exploitable. */
+  function lifeYears(person, nowYear) {
+    const bY = person.birth.value?.year ?? null;
+    const dY = person.death.value?.year ?? null;
+    let x1 = bY, x2 = dY, alive = false;
+    if (bY == null && dY == null) return null;
+    if (bY != null && dY != null) return { x1: bY, x2: dY, alive: false };
+    if (bY != null) {
+      alive = person.death.status === 'living';
+      return { x1: bY, x2: alive ? nowYear : Math.min(bY + 100, nowYear), alive };
+    }
+    return { x1: Math.max(dY - 100, 0), x2: dY, alive: false };
+  }
+
+  /** Dessine la vue chronologique pour la racine donnée. */
   function update(rootId) {
     currentRootId = rootId;
-    gAxis.selectAll('*').remove();
-    gRows.selectAll('*').remove();
-    if (!rootId || scope === 'tree') {
-      if (!rootId) return;
-    }
+    gView.selectAll('*').remove();
+    tip.style('display', 'none');
+    if (!rootId || !index.getIndividual(rootId)) return;
 
-    // ---------- collecte ----------
-    let people;
-    if (scope === 'all') {
-      people = index.getAllPeople();
-    } else {
-      const ids = collectIds(rootId);
-      people = [...ids].map((id) => index.getIndividual(id)).filter(Boolean);
-    }
     const nowYear = new Date().getFullYear();
-    const rows = [];
+    const persons = collectPersons(rootId);
+
+    // ---------- années extrêmes et échelle ----------
+    let minYear = Infinity, maxYear = -Infinity;
+    const entries = [];   // {id, person, depth, x1, x2, alive}
     let skipped = 0;
-    for (const p of people) {
-      const span = lifeSpan(p, nowYear);
+    for (const [id, { person, depth }] of persons) {
+      const span = lifeYears(person, nowYear);
       if (!span) { skipped++; continue; }
-      rows.push({ id: p.id, person: p, ...span });
+      entries.push({ id, person, depth, ...span });
+      minYear = Math.min(minYear, span.x1);
+      maxYear = Math.max(maxYear, span.x2);
     }
-    rows.sort((a, b) => a.x1 - b.x1 || a.x2 - b.x2);
-    log.info(`Frise : ${rows.length} ligne(s) de vie${skipped ? ` (${skipped} sans dates, ignoré(es))` : ''}`);
-    if (!rows.length) return;
+    if (!entries.length) { log.info('Frise : aucune date exploitable'); return; }
 
-    // ---------- échelle temporelle ----------
-    const minYear = Math.min(...rows.map((r) => r.x1));
-    const maxYear = Math.max(...rows.map((r) => r.x2));
-    const x = d3.scaleLinear()
-      .domain([minYear - 10, maxYear + 10])
-      .range([NAME_W, NAME_W + (maxYear - minYear + 20)]);   // 1 an = 1 px (zoom ensuite)
+    const avail = Math.max(container.clientWidth || 800, 400) - 40;
+    const pxPerYear = Math.min(14, Math.max(2.5, avail / (maxYear - minYear + 10)));
+    const X = (year) => (year - minYear + 5) * pxPerYear;
 
-    const height = Math.max(HEADER_H + rows.length * ROW_H + PAD, 120);
-    svg.attr('viewBox', `0 0 1000 ${height}`)
-       .attr('preserveAspectRatio', 'none');
-    container.style.height = Math.min(height, 480) + 'px';
+    // ---------- bandes : depth -> sous-lignes (packing d'intervalles) ----------
+    const byDepth = new Map();
+    for (const e of entries) {
+      if (!byDepth.has(e.depth)) byDepth.set(e.depth, []);
+      byDepth.get(e.depth).push(e);
+    }
+    const depths = [...byDepth.keys()].sort((a, b) => a - b);
 
-    // ---------- axe ----------
-    const spanYears = maxYear - minYear;
-    const step = spanYears > 400 ? 100 : spanYears > 150 ? 50 : spanYears > 60 ? 25 : 10;
+    // pack : chaque bande = liste de sous-lignes de boîtes sans chevauchement
+    const bands = new Map();   // depth -> {rows: [[entry]], top, h}
+    for (const d of depths) {
+      const list = byDepth.get(d).sort((a, b) => a.x1 - b.x1 || a.x2 - b.x2);
+      const rows = [];
+      for (const e of list) {
+        const x1 = X(e.x1), x2 = Math.max(X(e.x2), X(e.x1) + MIN_BOX_W);
+        e.px1 = x1; e.px2 = x2;
+        let placed = false;
+        for (const row of rows) {
+          const last = row[row.length - 1];
+          if (last.px2 + BOX_GAP <= x1) { row.push(e); placed = true; break; }
+        }
+        if (!placed) rows.push([e]);
+      }
+      bands.set(d, { rows, top: 0, h: rows.length * ROW_H });
+    }
+
+    // positions verticales : bandes empilées dans l'ordre des depths
+    let y = TOP_PAD;
+    for (const d of depths) {
+      const b = bands.get(d);
+      b.top = y;
+      y += b.h + BAND_GAP;
+    }
+    const totalH = y - BAND_GAP + TOP_PAD;
+    const totalW = X(maxYear) + 40;
+
+    svg.attr('height', Math.max(totalH, 80))
+       .attr('viewBox', `0 0 ${totalW} ${Math.max(totalH, 80)}`)
+       .attr('preserveAspectRatio', 'xMinYMin meet');
+    container.style.height = Math.min(totalH, 720) + 'px';
+
+    // ---------- axe des années ----------
+    const span = maxYear - minYear;
+    const step = span > 400 ? 100 : span > 150 ? 50 : span > 60 ? 25 : 10;
     const ticks = [];
-    for (let y = Math.ceil((minYear - 10) / step) * step; y <= maxYear + 10; y += step) ticks.push(y);
-    gAxis.selectAll('g')
-      .data(ticks)
-      .join('g')
-      .attr('transform', (t) => `translate(${x(t)},0)`)
-      .call((g) => {
-        g.append('line').attr('class', 'tl-grid')
-          .attr('y1', 0).attr('y2', rows.length * ROW_H);
-        g.append('text').attr('class', 'tl-tick')
-          .attr('y', -8).attr('text-anchor', 'middle')
-          .text((t) => t);
+    for (let t = Math.ceil(minYear / step) * step; t <= maxYear; t += step) ticks.push(t);
+    const tickSel = gView.selectAll('g.tl-tick').data(ticks).join('g')
+      .attr('transform', (t) => `translate(${X(t)},0)`);
+    tickSel.append('line').attr('class', 'tl-grid')
+      .attr('y1', 14).attr('y2', totalH - TOP_PAD + 10);
+    tickSel.append('text').attr('class', 'tl-tick')
+      .attr('y', 10).attr('text-anchor', 'middle').text((t) => t);
+
+    // ---------- liens de filiation ----------
+    // pour chaque individu de profondeur d, parents attendus en bande d-1
+    const inBand = new Map();   // id -> depth réelle
+    for (const e of entries) inBand.set(e.id, e.depth);
+    const eById = new Map(entries.map((e) => [e.id, e]));
+
+    for (const e of entries) {
+      if (e.depth === -0 && e.id === rootId) { /* racine : parents en -1 */ }
+      const parentsBand = e.depth - 1;
+      if (!bands.has(parentsBand)) continue;
+      const parentBand = bands.get(parentsBand);
+      const bandBottom = parentBand.top + parentBand.h;
+
+      for (const famId of e.person.childInFamilies) {
+        const fam = index.getFamily(famId);
+        if (!fam) continue;
+        const pIn = [fam.husband, fam.wife].filter((pid) => inBand.get(pid) === parentsBand);
+        if (!pIn.length) continue;
+        // X de départ : date de mariage si connue, sinon heuristique
+        let mYear = fam.marriage.value?.year ?? null;
+        if (mYear == null) {
+          const births = pIn.map((pid) => eById.get(pid)).map((pe) => pe?.x1).filter((v) => v != null);
+          mYear = births.length ? Math.round(births.reduce((s, v) => s + v, 0) / births.length) + 25
+                                : e.x1;
+        }
+        const mx = X(mYear);
+        const childX = e.px1, childY = bands.get(e.depth).top
+          + findRowIndex(bands.get(e.depth), e) * ROW_H;
+        gView.append('path').attr('class', 'tl-link')
+          .attr('d', `M ${mx} ${bandBottom} C ${mx} ${bandBottom + 12}, ${childX} ${childY - 12}, ${childX} ${childY}`);
+        // repère de mariage : petit trait orange
+        gView.append('line').attr('class', 'tl-marry')
+          .attr('x1', mx).attr('y1', bandBottom - 6)
+          .attr('x2', mx).attr('y2', bandBottom + 2);
+      }
+    }
+
+    /** Index de sous-ligne d'une entrée dans sa bande. */
+    function findRowIndex(band, e) {
+      for (let i = 0; i < band.rows.length; i++) {
+        if (band.rows[i].includes(e)) return i;
+      }
+      return 0;
+    }
+
+    // ---------- boîtes ----------
+    for (const d of depths) {
+      const band = bands.get(d);
+      band.rows.forEach((row, ri) => {
+        const sel = gView.selectAll(null).data(row).join('g')
+          .attr('class', 'tl-box')
+          .attr('transform', (e) => `translate(${e.px1},${band.top + ri * ROW_H})`);
+
+        sel.append('rect')
+          .attr('width', (e) => e.px2 - e.px1)
+          .attr('height', ROW_H - 4)
+          .attr('rx', 3)
+          .attr('class', (e) => {
+            const cls = [e.person.sex === 'M' ? 'm' : e.person.sex === 'F' ? 'f' : null];
+            if (e.id === currentRootId) cls.push('root');
+            if (e.person.birth.status === 'estimated' || e.person.death.status === 'estimated') cls.push('est');
+            if (e.alive) cls.push('alive');
+            return cls.filter(Boolean).join(' ');
+          });
+
+        // nom si la place le permet
+        sel.filter((e) => e.px2 - e.px1 > 34).append('text')
+          .attr('x', 3).attr('y', ROW_H / 2 - 1)
+          .text((e) => {
+            const maxCh = Math.floor((e.px2 - e.px1 - 6) / 5.6);
+            const s = ((e.person.name.given || '') + ' ' + (e.person.name.surname || '?').toUpperCase()).trim();
+            return s.length > maxCh ? s.slice(0, maxCh - 1) + '…' : s;
+          });
+
+        sel.on('click', (event, e) => {
+          log.debug('Clic frise sur ' + e.id);
+          if (onSelectPerson) onSelectPerson(e.id);
+        })
+          .on('pointerover', (event, e) => {
+            tip.html(buildTooltipHtml(e.person)).style('display', 'block');
+            positionTip(event);
+          })
+          .on('pointermove', positionTip)
+          .on('pointerout', () => tip.style('display', 'none'));
       });
+    }
 
-    // ---------- lignes de vie ----------
-    const row = gRows.selectAll('g.tl-row')
-      .data(rows, (r) => r.id)
-      .join('g')
-      .attr('class', 'tl-row')
-      .attr('transform', (r, i) => `translate(0,${i * ROW_H})`);
-
-    row.append('text')
-      .attr('class', 'tl-name')
-      .attr('x', NAME_W - 6)
-      .attr('y', ROW_H / 2 + 4)
-      .attr('text-anchor', 'end')
-      .text((r) => {
-        const s = ((r.person.name.surname || '?') + ' ' + r.person.name.given).trim();
-        return s.length > 26 ? s.slice(0, 25) + '…' : s;
-      });
-
-    row.append('line')
-      .attr('class', (r) => r.estimated ? 'tl-bar est' : 'tl-bar')
-      .classed('root', (r) => r.id === currentRootId)
-      .attr('x1', (r) => x(r.x1))
-      .attr('x2', (r) => x(r.x2))
-      .attr('y1', ROW_H / 2)
-      .attr('y2', ROW_H / 2);
-
-    row.filter((r) => r.alive).append('path')
-      .attr('class', 'tl-arrow')
-      .attr('transform', (r) => `translate(${x(r.x2) - 8},${ROW_H / 2})`)
-      .attr('d', 'M 0 -4 L 8 0 L 0 4 Z');
-
-    row.on('click', (event, r) => {
-      log.debug('Clic frise sur ' + r.id);
-      if (onSelectPerson) onSelectPerson(r.id);
-    });
-
-    // largeur du SVG étendue pour le défilement/zoom
-    svg.attr('viewBox', `0 0 ${Math.max(x(maxYear + 10) + PAD, 1000)} ${height}`);
+    svg.call(zoomBeh.transform, d3.zoomIdentity);   // vue non zoomée à chaque update
+    log.info(`Frise chronologique : ${entries.length} boîte(s) sur ${depths.length} bande(s)`
+      + `${skipped ? `, ${skipped} sans dates ignoré(es)` : ''}`);
   }
 
-  log.info('Vue chronologique initialisée');
-  return {
-    update,
-    getScope: () => scope,
-  };
+  log.info('Vue chronologique généalogique initialisée');
+  return { update };
 }
