@@ -26,6 +26,27 @@ const MIN_BOX_W = 16;  // largeur minimale d'une boîte
 const BAND_GAP = 26;   // espace vertical entre bandes (passage des filiations)
 const TOP_PAD = 26;    // place pour l'axe des années
 
+/** Ensemble des ids de la « famille » d'un individu : conjoints, enfants,
+ *  parents, fratrie (pour la surbrillance au survol). */
+function familySet(index, person) {
+  const s = new Set([person.id]);
+  for (const fid of person.familyAsSpouse) {
+    const fam = index.getFamily(fid);
+    if (!fam) continue;
+    if (fam.husband) s.add(fam.husband);
+    if (fam.wife) s.add(fam.wife);
+    fam.children.forEach((c) => c && s.add(c));
+  }
+  for (const fid of person.childInFamilies) {
+    const fam = index.getFamily(fid);
+    if (!fam) continue;
+    if (fam.husband) s.add(fam.husband);
+    if (fam.wife) s.add(fam.wife);
+    fam.children.forEach((c) => c && s.add(c));   // fratrie incluse
+  }
+  return s;
+}
+
 /**
  * Initialise la vue chronologique généalogique.
  * @param {Object} options
@@ -249,10 +270,13 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
         const mx = X(mYear);
         const childX = e.px1, childY = bands.get(e.depth).top
           + findRowIndex(bands.get(e.depth), e) * ROW_H;
+        const ids = [...pIn, e.id];
         gView.append('path').attr('class', 'tl-link')
+          .datum({ ids })
           .attr('d', `M ${mx} ${bandBottom} C ${mx} ${bandBottom + 12}, ${childX} ${childY - 12}, ${childX} ${childY}`);
         // repère de mariage : petit trait orange
         gView.append('line').attr('class', 'tl-marry')
+          .datum({ ids })
           .attr('x1', mx).attr('y1', bandBottom - 6)
           .attr('x2', mx).attr('y2', bandBottom + 2);
       }
@@ -302,9 +326,19 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
           .on('pointerover', (event, e) => {
             tip.html(buildTooltipHtml(e.person)).style('display', 'block');
             positionTip(event);
+            const fam = familySet(index, e.person);
+            gView.selectAll('g.tl-box')
+              .classed('dim', (b) => !fam.has(b.id))
+              .classed('hl', (b) => fam.has(b.id) && b.id !== e.id);
+            gView.selectAll('path.tl-link, line.tl-marry')
+              .classed('dim', (l) => !(l.ids && l.ids.some((i) => fam.has(i))));
           })
           .on('pointermove', positionTip)
-          .on('pointerout', () => tip.style('display', 'none'));
+          .on('pointerout', () => {
+            tip.style('display', 'none');
+            gView.selectAll('g.tl-box').classed('dim', false).classed('hl', false);
+            gView.selectAll('path.tl-link, line.tl-marry').classed('dim', false);
+          });
       });
     }
 

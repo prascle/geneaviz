@@ -119,6 +119,27 @@ function sexClass(person) {
   return person.sex === 'M' ? 'm' : person.sex === 'F' ? 'f' : null;
 }
 
+/** Ensemble des ids de la « famille » d'un individu : conjoints, enfants,
+ *  parents, fratrie (pour la surbrillance au survol). */
+function familySet(index, person) {
+  const s = new Set([person.id]);
+  for (const fid of person.familyAsSpouse) {
+    const fam = index.getFamily(fid);
+    if (!fam) continue;
+    if (fam.husband) s.add(fam.husband);
+    if (fam.wife) s.add(fam.wife);
+    fam.children.forEach((c) => c && s.add(c));
+  }
+  for (const fid of person.childInFamilies) {
+    const fam = index.getFamily(fid);
+    if (!fam) continue;
+    if (fam.husband) s.add(fam.husband);
+    if (fam.wife) s.add(fam.wife);
+    fam.children.forEach((c) => c && s.add(c));   // fratrie incluse
+  }
+  return s;
+}
+
 /** Courbe de filiation (bezier horizontale). */
 function filiationPath(x1, y1, x2, y2) {
   const dx = (x2 - x1) / 2;
@@ -273,9 +294,19 @@ export function initTree({ container, controls, index, onSelectNode }) {
       .on('pointerover', (event, d) => {
         tip.html(buildTooltipHtml(d.person)).style('display', 'block');
         positionTip(event);
+        const fam = familySet(index, d.person);
+        gView.selectAll('g.tree-node')
+          .classed('dim', (n) => !n.ghost && !fam.has(n.id))
+          .classed('hl', (n) => !n.ghost && fam.has(n.id) && n.id !== d.id);
+        gView.selectAll('path.tree-link').classed('dim', (l) => !l.ids.some((i) => fam.has(i)));
+        gView.selectAll('line.spouse-link').classed('dim', (l) => !l.ids.some((i) => fam.has(i)));
       })
       .on('pointermove', positionTip)
-      .on('pointerout', () => tip.style('display', 'none'));
+      .on('pointerout', () => {
+        tip.style('display', 'none');
+        gView.selectAll('g.tree-node').classed('dim', false).classed('hl', false);
+        gView.selectAll('path.tree-link, line.spouse-link').classed('dim', false);
+      });
   }
 
   /* ---------- layout descendant : individu + conjoints empilés ---------- */
@@ -372,7 +403,10 @@ export function initTree({ container, controls, index, onSelectNode }) {
     }
     if (nRows > 1) {
       out.unions.push({ x1: xLeft + NODE_W, y1: rowY(0),
-                        x2: xLeft + NODE_W, y2: rowY(nRows - 1) });
+                        x2: xLeft + NODE_W, y2: rowY(nRows - 1),
+                        ids: [unit.person.id,
+                              ...unit.unions.filter((u) => u.spouseId)
+                                            .map((u) => u.spouseId)] });
     }
 
     // enfants de toutes les unions, empilés et centrés sur l'unité
@@ -383,7 +417,9 @@ export function initTree({ container, controls, index, onSelectNode }) {
         const yc = acc + c.h / 2;
         acc += c.h; first = false;
         const xChild = xLeft + NODE_W + GAP_X;
-        out.filiation.push(filiationPath(o.x, o.y, xChild, yc));
+        out.filiation.push({ d: filiationPath(o.x, o.y, xChild, yc),
+                             ids: [unit.person.id, o.union.spouseId, c.person.id]
+                               .filter(Boolean) });
         placeDown(c, xChild, yc, out);
       }
     }
@@ -477,15 +513,18 @@ export function initTree({ container, controls, index, onSelectNode }) {
         }
         if (!drawnBrackets.has(famId)) {
           drawnBrackets.add(famId);
-          out.unions.push({ x1: cardX(u.a) + NODE_W / 2, y1: ay, x2: xU, y2: ay });
-          out.unions.push({ x1: cardX(u.a) + NODE_W / 2, y1: by, x2: xU, y2: by });
-          out.unions.push({ x1: xU, y1: Math.min(ay, by), x2: xU, y2: Math.max(ay, by) });
+          const ids = [u.a.data.id, u.b ? u.b.data.id : null].filter(Boolean);
+          out.unions.push({ x1: cardX(u.a) + NODE_W / 2, y1: ay, x2: xU, y2: ay, ids });
+          out.unions.push({ x1: cardX(u.a) + NODE_W / 2, y1: by, x2: xU, y2: by, ids });
+          out.unions.push({ x1: xU, y1: Math.min(ay, by), x2: xU, y2: Math.max(ay, by), ids });
         }
-        out.filiation.push(filiationPath(xU, (ay + by) / 2, childLeftX, childY));
+        out.filiation.push({ d: filiationPath(xU, (ay + by) / 2, childLeftX, childY),
+                             ids: [u.a.data.id, u.b ? u.b.data.id : null, childNode.data.id]
+                               .filter(Boolean) });
       } else {
         // pas de couple identifiable : filiation directe depuis le parent
-        out.filiation.push(filiationPath(cardX(n) + NODE_W / 2, n.x - shift,
-                                         childLeftX, childY));
+        out.filiation.push({ d: filiationPath(cardX(n) + NODE_W / 2, n.x - shift, childLeftX, childY),
+                             ids: [n.data.id, childNode.data.id] });
       }
     }
   }
@@ -528,7 +567,7 @@ export function initTree({ container, controls, index, onSelectNode }) {
       .data(out.filiation)
       .join('path')
       .attr('class', 'tree-link')
-      .attr('d', (d) => d);
+      .attr('d', (d) => d.d);
     gView.selectAll(null)
       .data(out.unions)
       .join('line')

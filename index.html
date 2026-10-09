@@ -45,6 +45,10 @@
   .tree-node .node-dates { fill: #555; }
   .tree-node .node-dates.est { fill: #b45309; font-style: italic; }
   .tree-node .node-dates.ghost-label { fill: #999; font-style: italic; }
+  .tree-node, .tl-box, .tree-link, .spouse-link, .tl-link { transition: opacity .18s; }
+  .tree-node.dim, .tl-box.dim { opacity: .22; }
+  .tree-node.hl rect, .tl-box.hl rect { stroke: #2563eb; stroke-width: 2; }
+  .tree-link.dim, .spouse-link.dim, .tl-link.dim { opacity: .1; }  
   .tree-tip { position: fixed; z-index: 1000; display: none; max-width: 22rem;
     background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
     padding: .6rem .8rem; box-shadow: 0 4px 14px rgba(0,0,0,.12);
