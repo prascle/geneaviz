@@ -2,14 +2,14 @@
  * timeline.js — Vue chronologique généalogique (layout récursif par familles).
  *
  * L'axe X est le temps : chaque boîte va de la naissance au décès (tirets si
- * date estimée, flèche si vivant présumé). Le placement vertical suit la
- * structure des familles :
+ * date estimée, flèche si vivant présumé). Le placement vertical :
  *  - descendants : couple empilé (mari au-dessus de la femme), enfants posés
  *    SOUS le couple, dans l'ordre de naissance ; chaque enfant reçoit comme
  *    plancher le haut du frère précédent (ordre préservé), puis est poussé
  *    vers le bas en cas de chevauchement temporel avec un bloc déjà posé ;
- *  - ascendants : couples de parents au-dessus de l'enfant, itérés jusqu'à
- *    la profondeur demandée, avec la même contrainte anti-chevauchement ;
+ *  - ascendants : symétrie « vue classique » — chaque couple de parents est
+ *    centré sur la ligne de son enfant : le père au-dessus, la mère en
+ *    dessous, récursivement (l'axe de la racine sépare les deux branches) ;
  *  - liens de filiation partant de la date de mariage (sinon : naissances
  *    des parents + 25 ans), repère orange au point de mariage.
  *
@@ -77,6 +77,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     .on('zoom', (event) => gZoom.attr('transform', event.transform));
   svg.call(zoomBeh);
 
+  // infobulle partagée avec la vue arbre
   let tip = d3.select('body').select('div.tree-tip');
   if (tip.empty()) tip = d3.select('body').append('div').attr('class', 'tree-tip');
   const positionTip = (event) => {
@@ -88,6 +89,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     tip.style('left', x + 'px').style('top', y + 'px');
   };
 
+  /** Contenu HTML de l'infobulle (complet : dates, unions, enfants). */
   function buildTooltipHtml(p) {
     const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
       (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -114,6 +116,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     return rows.join('');
   }
 
+  /** Estompe la frise hors famille de l'individu survolé. */
   function highlightFamily(person) {
     const fam = familySet(index, person);
     gView.selectAll('g.tl-box')
@@ -122,6 +125,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     gView.selectAll('path.tl-link, line.tl-marry')
       .classed('dim', (l) => !(l.ids && l.ids.some((i) => fam.has(i))));
   }
+
+  /** Rétablit l'opacité normale. */
   function clearHighlight() {
     gView.selectAll('g.tl-box').classed('dim', false).classed('hl', false);
     gView.selectAll('path.tl-link, line.tl-marry').classed('dim', false);
@@ -163,24 +168,26 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
 
   /**
    * Construit le bloc d'un individu : ses lignes (lui + conjoints, mari en
-   * haut) et les sous-arbres de ses enfants, triés par naissance.
+   * haut), la liste de ses unions, et les sous-arbres de ses enfants,
+   * triés par naissance.
    */
   function buildDown(pid, depth, seen) {
+    const nowYear = new Date().getFullYear();
     const p = index.getIndividual(pid);
     const node = { pid, rows: [], unions: [], subs: [],
                    h: 0, t1: Infinity, t2: -Infinity };
-    if (!p || seen.has(pid) || depth >= downGen) {
-      addPersonRow(node, p);
-      return node;
-    }
+    if (!p) return node;
+
+    addPersonRow(node, p, nowYear);
+    if (seen.has(pid) || depth >= downGen) return node;
     seen.add(pid);
-    addPersonRow(node, p);
+
     for (const u of unionsOf(p)) {
       let spouseRow = null;
       if (u.spouseId && !seen.has(u.spouseId)) {
         const sp = index.getIndividual(u.spouseId);
         seen.add(u.spouseId);
-        spouseRow = addPersonRow(node, sp);
+        spouseRow = addPersonRow(node, sp, nowYear);
       }
       node.unions.push({ marr: u.marr, spouseRow, spouseId: u.spouseId });
       const kids = u.kids.filter((k) => !seen.has(k))
@@ -195,15 +202,13 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     return node;
   }
 
-  /** Ajoute la ligne d'un individu au bloc (retourne la ligne, ou null). */
-  function addPersonRow(node, p) {
-    const nowYear = new Date().getFullYear();
+  /** Ajoute la ligne d'un individu au bloc (mari inséré en tête). */
+  function addPersonRow(node, p, nowYear) {
     if (!p) return null;
     const l = lifeYears(p, nowYear);
     if (!l) return null;
     const row = { id: p.id, person: p, ...l };
-    const isMale = p.sex === 'M';
-    if (node.rows.length && isMale && !node.rows[0].isMain) node.rows.unshift(row);
+    if (p.sex === 'M' && node.rows.length) node.rows.unshift(row);
     else node.rows.push(row);
     node.h = node.rows.length * ROW_H + (node.rows.length - 1) * GAP_ROW;
     node.t1 = Math.min(node.t1, l.t1);
@@ -216,6 +221,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
   /** Blocs déjà posés, pour la détection de chevauchements. */
   let placed = [];
   function conflicts(y, h, t1, t2) {
+    if (t1 == null || t2 == null) return null;
     for (const b of placed) {
       if (t1 <= b.t2 && b.t1 <= t2 && y < b.yBot && b.yTop < y + h) return b;
     }
@@ -225,12 +231,11 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
   /** Pose un bloc descendant ; les enfants sous le couple, en ordre. */
   function placeDown(node, desiredY, floorY) {
     let y = Math.max(desiredY, floorY);
-    if (node.h > 0) {
+    if (node.rows.length) {
       let guard = 0, c;
       while ((c = conflicts(y, node.h, node.t1, node.t2)) && guard++ < 500) {
         y = c.yBot + GAP_ROW;
       }
-      placed.push({ yTop: y, yBot: y + node.h, t1: node.t1, t2: node.t2, label: node.pid });
     }
     node.yTop = y;
     let ry = y;
@@ -239,77 +244,84 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       placed.push({ yTop: r.y, yBot: r.y + ROW_H, t1: r.t1, t2: r.t2, label: r.id });
       ry += ROW_H + GAP_ROW;
     }
-    const coupleBottom = y + node.h;
+    const blockBottom = y + node.h;
     let prevTop = -Infinity;
     for (const sub of node.subs) {
-      placeDown(sub, coupleBottom + BAND_GAP, Math.max(coupleBottom + BAND_GAP, prevTop));
+      const start = Math.max(blockBottom + BAND_GAP, prevTop);
+      placeDown(sub, start, start);
       prevTop = sub.yTop;
     }
-    node.yBot = Math.max(y + node.h, ...node.subs.map((s) => s.yBot ?? 0));
+    node.yBot = Math.max(blockBottom, ...node.subs.map((s) => s.yBot ?? blockBottom));
   }
 
-  /** Construit une unité ascendante : couple + sous-unités des parents
-   *  de chacun des deux époux, avec hauteur totale précalculée. */
-  function buildUp(childId, depth, seen) {
-    const p = index.getIndividual(childId);
+  /* ---------------- ascendants symétriques ---------------- */
+
+  /**
+   * Construit la branche ascendante : pour chaque individu, son père et sa
+   * mère (chacun une ligne), et récursivement leurs propres parents.
+   * Le placement centrera chaque couple sur la ligne de son enfant :
+   * père au-dessus, mère en dessous (symétrie de la vue classique).
+   * @returns {Array<{childId, marr, upRow, downRow}>} upRow/downRow portent
+   *   chacun une éventuelle sous-branche `.branch`
+   */
+  function buildUpAncestors(pid, depth, seen) {
+    const p = index.getIndividual(pid);
     const out = [];
-    if (!p) return out;
+    if (!p || depth >= upGen) return out;
     for (const fid of p.childInFamilies) {
       const fam = index.getFamily(fid);
       if (!fam) continue;
       const nowYear = new Date().getFullYear();
-      const rows = [];
-      const cand = [fam.husband, fam.wife].filter(Boolean)
-        .sort((a, b) => (index.getIndividual(a)?.sex === 'M' ? 0 : 1)
-                      - (index.getIndividual(b)?.sex === 'M' ? 0 : 1));
-      for (const pid of cand) {
-        if (seen.has(pid) || !index.getIndividual(pid)) continue;
-        seen.add(pid);
-        const l = lifeYears(index.getIndividual(pid), nowYear);
-        if (l) rows.push({ id: pid, person: index.getIndividual(pid), ...l });
-      }
-      if (!rows.length) continue;
-
-      const unit = { rows, childId,
-                     marr: fam.marriage.value?.year ?? null, fams: [] };
-      if (depth + 1 < upGen) {
-        for (const r of rows) unit.fams.push(...buildUp(r.id, depth + 1, seen));
-      }
-      const ownH = rows.length * ROW_H + (rows.length - 1) * GAP_ROW;
-      const famsH = unit.fams.reduce((s, f) => s + f.h + BAND_GAP, 0);
-      unit.h = ownH + famsH;
+      const unit = { childId: pid,
+                     marr: fam.marriage.value?.year ?? null,
+                     upRow: null, downRow: null };
+      const mkRow = (id) => {
+        if (!id || seen.has(id) || !index.getIndividual(id)) return null;
+        seen.add(id);
+        const l = lifeYears(index.getIndividual(id), nowYear);
+        return l ? { id, person: index.getIndividual(id), ...l } : null;
+      };
+      unit.upRow = mkRow(fam.husband);     // père : au-dessus de l'enfant
+      unit.downRow = mkRow(fam.wife);       // mère : en dessous
+      if (!unit.upRow && !unit.downRow) continue;
+      if (unit.upRow) unit.upRow.branch = buildUpAncestors(unit.upRow.id, depth + 1, seen);
+      if (unit.downRow) unit.downRow.branch = buildUpAncestors(unit.downRow.id, depth + 1, seen);
       out.push(unit);
     }
     return out;
   }
 
-  /** Pose une unité ascendante : couple au-dessus de yBottom, branches
-   *  paternelle puis maternelle empilées au-dessus (fan-out vertical). */
-  function placeUp(unit, yBottom) {
-    const ownH = unit.rows.length * ROW_H + (unit.rows.length - 1) * GAP_ROW;
-    let y = yBottom - BAND_GAP - ownH, guard = 0, c;
-    const t1 = Math.min(...unit.rows.map((r) => r.t1));
-    const t2 = Math.max(...unit.rows.map((r) => r.t2));
-    while ((c = conflicts(y, ownH, t1, t2)) && guard++ < 500) {
-      y = c.yTop - ownH - GAP_ROW;
+  /**
+   * Pose les ascendants symétriquement : chaque couple centré sur la ligne
+   * de son enfant — le père au-dessus (conflits vers le haut), la mère en
+   * dessous (conflits vers le bas) — récursivement.
+   */
+  function placeAncestors(units, childRow) {
+    for (const u of units) {
+      if (u.upRow) {
+        let y = childRow.y - BAND_GAP - ROW_H, guard = 0, c;
+        while ((c = conflicts(y, ROW_H, u.upRow.t1, u.upRow.t2)) && guard++ < 500) {
+          y = c.yTop - ROW_H - GAP_ROW;
+        }
+        u.upRow.y = y;
+        placed.push({ yTop: y, yBot: y + ROW_H, t1: u.upRow.t1, t2: u.upRow.t2, label: u.upRow.id });
+        placeAncestors(u.upRow.branch, u.upRow);
+      }
+      if (u.downRow) {
+        let y = childRow.y + ROW_H + GAP_ROW, guard = 0, c;
+        while ((c = conflicts(y, ROW_H, u.downRow.t1, u.downRow.t2)) && guard++ < 500) {
+          y = c.yBot + GAP_ROW;
+        }
+        u.downRow.y = y;
+        placed.push({ yTop: y, yBot: y + ROW_H, t1: u.downRow.t1, t2: u.downRow.t2, label: u.downRow.id });
+        placeAncestors(u.downRow.branch, u.downRow);
+      }
     }
-    let ry = y;
-    for (const r of unit.rows) {
-      r.y = ry;
-      placed.push({ yTop: r.y, yBot: r.y + ROW_H, t1: r.t1, t2: r.t2, label: r.id });
-      ry += ROW_H + GAP_ROW;
-    }
-    unit.yTop = y; unit.yBot = y + ownH;
-    let cursor = y;
-    for (const f of unit.fams) {
-      placeUp(f, cursor);
-      cursor = f.yTop - BAND_GAP;
-    }
-    unit.yBotAll = Math.min(unit.yTop, ...unit.fams.map((f) => f.yBotAll ?? f.yTop));
   }
 
   /* ---------------- dessin ---------------- */
 
+  /** Dessine la vue chronologique pour la racine donnée. */
   function update(rootId) {
     currentRootId = rootId;
     gView.selectAll('*').remove();
@@ -317,33 +329,41 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     placed = [];
     if (!rootId || !index.getIndividual(rootId)) return;
 
-    // ---------- construction et placement ----------
+    // ---------- descendants : construction + placement ----------
     const down = buildDown(rootId, 0, new Set());
     placeDown(down, 0, 0);
-    const anc = buildUp(rootId, 0, new Set([rootId]));
-    for (const a of anc) placeUp(a, down.yTop);
 
-    // ---------- collecte des lignes ----------
+    // ---------- collecte des lignes descendantes ----------
     const rowMap = new Map();     // id -> première ligne
     const allRows = [];
-    const collect = (rows, subs) => {
-      for (const r of rows) {
+    const collectDown = (n) => {
+      for (const r of n.rows) {
         if (!rowMap.has(r.id)) { rowMap.set(r.id, r); allRows.push(r); }
       }
-      subs.forEach((s) => collect(s.rows, s.subs));
+      n.subs.forEach(collectDown);
     };
-    collect(down.rows, down.subs);
-    for (const a of anc) {
-      (function walkA(n) { collect(n.rows, []); n.fams.forEach(walkA); })(a);
-    }
+    collectDown(down);
+
+    // ---------- ascendants symétriques : construction + placement ----------
+    const ancUnits = buildUpAncestors(rootId, 0, new Set([rootId]));
+    const rootRow = rowMap.get(rootId);
+    if (rootRow) placeAncestors(ancUnits, rootRow);
+    const collectAnc = (u) => {
+      for (const r of [u.upRow, u.downRow]) {
+        if (r && !rowMap.has(r.id)) { rowMap.set(r.id, r); allRows.push(r); }
+      }
+      if (u.upRow) u.upRow.branch.forEach(collectAnc);
+      if (u.downRow) u.downRow.branch.forEach(collectAnc);
+    };
+    for (const u of ancUnits) collectAnc(u);
     if (!allRows.length) { log.info('Frise : aucune date exploitable'); return; }
 
+    // ---------- échelle ----------
     let minY = Infinity, maxY = -Infinity, minT = Infinity, maxT = -Infinity;
     for (const r of allRows) {
       minY = Math.min(minY, r.y); maxY = Math.max(maxY, r.y + ROW_H);
       minT = Math.min(minT, r.t1); maxT = Math.max(maxT, r.t2);
     }
-
     const avail = Math.max(container.clientWidth || 800, 400) - 2 * SIDE_PAD;
     const pxPerYear = Math.min(14, Math.max(2.5, avail / (maxT - minT + 10)));
     const X = (t) => SIDE_PAD + (t - minT + 5) * pxPerYear;
@@ -356,29 +376,28 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
        .attr('preserveAspectRatio', 'xMinYMin meet');
     container.style.height = Math.min(totalH, 720) + 'px';
 
-    // ---------- axe ----------
+    // ---------- axe des années ----------
     const span = maxT - minT;
     const step = span > 400 ? 100 : span > 150 ? 50 : span > 60 ? 25 : 10;
     const ticks = [];
     for (let t = Math.ceil(minT / step) * step; t <= maxT; t += step) ticks.push(t);
     const tickSel = gView.selectAll('g.tl-tick').data(ticks).join('g')
-      .attr('transform', (t) => `translate(${X(t)},${offY - minY})`);
+      .attr('transform', (t) => `translate(${X(t)},0)`);
     tickSel.append('line').attr('class', 'tl-grid')
-      .attr('y1', minY - 14).attr('y2', maxY);
+      .attr('y1', minY - 14 + offY).attr('y2', maxY + offY);
     tickSel.append('text').attr('class', 'tl-tick')
-      .attr('y', minY - 20).attr('text-anchor', 'middle').text((t) => t);
+      .attr('y', minY - 20 + offY).attr('text-anchor', 'middle').text((t) => t);
 
     // ---------- repères de mariage + filiations ----------
+    /** Année de mariage heuristique : moyenne des naissances + 25 ans. */
     const heuristicMarr = (rows) => {
-      const b = rows.map((r) => r.t1).filter((v) => v != null);
+      const b = rows.map((r) => r?.t1).filter((v) => v != null);
       return b.length ? Math.round(b.reduce((s, v) => s + v, 0) / b.length) + 25 : null;
     };
 
-    /** Repère d'union entre deux lignes de couple. */
+    /** Repère d'union : trait vertical entre les deux lignes du couple. */
     function drawMarry(rowA, rowB, marr, ids) {
       if (!rowA || !rowB || marr == null) return;
-      const y1 = Math.max(rowA.y, rowB.y) - ROW_H + 2;
-      const y2 = Math.min(rowA.y, rowB.y) + ROW_H - 2;
       gView.append('line').attr('class', 'tl-marry')
         .datum({ ids })
         .attr('x1', X(marr)).attr('y1', rowA.y + ROW_H / 2)
@@ -397,27 +416,21 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         .attr('d', `M ${x} ${yFrom} C ${x} ${yFrom + dy}, ${cx} ${cy - dy}, ${cx} ${cy}`);
     }
 
-    // descendants : unions du bloc + filiation vers chaque sous-arbre
+    // descendants : union du couple + filiation vers chaque sous-arbre
     (function walkDown(node) {
       const mainRow = node.rows.find((r) => r.id === node.pid) ?? node.rows[0];
-      let ui = 0;
       for (const u of node.unions) {
-        const spouseRow = u.spouseRow;
-        const marr = u.marr ?? heuristicMarr([mainRow, spouseRow].filter(Boolean));
-        if (marr != null && mainRow && spouseRow) {
-          drawMarry(mainRow, spouseRow, marr,
-            [mainRow.id, spouseRow.id].filter(Boolean));
-        }
-        ui++;
+        const marr = u.marr ?? heuristicMarr([mainRow, u.spouseRow]);
+        drawMarry(mainRow, u.spouseRow, marr,
+          [mainRow?.id, u.spouseRow?.id].filter(Boolean));
       }
       for (const sub of node.subs) {
         const pu = sub.parentUnion;
-        const marr = pu.marr
-          ?? heuristicMarr([mainRow, pu.spouseRow].filter(Boolean));
+        const marr = pu.marr ?? heuristicMarr([mainRow, pu.spouseRow]);
         if (marr != null && mainRow) {
-          const yFrom = mainRow && pu.spouseRow
+          const yFrom = pu.spouseRow
             ? (mainRow.y + pu.spouseRow.y) / 2 + ROW_H / 2
-            : mainRow.y + ROW_H;
+            : mainRow.y + node.h;
           drawFiliation(X(marr), yFrom, sub.pid,
             [mainRow.id, pu.spouseRow?.id, sub.pid].filter(Boolean));
         }
@@ -426,25 +439,27 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     })(down);
 
     // ascendants : union du couple + filiation vers l'enfant
-    for (const a of anc) {
-      (function walkUp(n) {
-        const marr = n.marr ?? heuristicMarr(n.rows);
-        if (marr != null) {
-          if (n.rows.length === 2) {
-            drawMarry(n.rows[0], n.rows[1], marr, [n.rows[0].id, n.rows[1].id]);
-          }
-          const childRow = rowMap.get(n.childId);
-          if (childRow) {
-            const yFrom = n.rows.length === 2
-              ? (n.rows[0].y + n.rows[1].y) / 2 + ROW_H / 2
-              : n.rows[0].y;
-            drawFiliation(X(marr), yFrom, n.childId,
-              [...n.rows.map((r) => r.id), n.childId]);
-          }
+    const walkAnc = (u) => {
+      const ids = [u.upRow?.id, u.downRow?.id, u.childId].filter(Boolean);
+      const marr = u.marr ?? heuristicMarr([u.upRow, u.downRow]);
+      if (marr != null) {
+        let midY;
+        if (u.upRow && u.downRow) {
+          gView.append('line').attr('class', 'tl-marry')
+            .datum({ ids })
+            .attr('x1', X(marr)).attr('y1', u.upRow.y + ROW_H / 2)
+            .attr('x2', X(marr)).attr('y2', u.downRow.y + ROW_H / 2);
+          midY = (u.upRow.y + u.downRow.y) / 2 + ROW_H / 2;
+        } else {
+          const r = u.upRow ?? u.downRow;
+          midY = r.y + ROW_H / 2;
         }
-        n.fams.forEach(walkUp);
-      })(a);
-    }
+        drawFiliation(X(marr), midY, u.childId, ids);
+      }
+      if (u.upRow) u.upRow.branch.forEach(walkAnc);
+      if (u.downRow) u.downRow.branch.forEach(walkAnc);
+    };
+    ancUnits.forEach(walkAnc);
 
     // ---------- boîtes ----------
     const boxes = [...rowMap.values()];
@@ -487,8 +502,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       .on('pointerout', () => { tip.style('display', 'none'); clearHighlight(); });
 
     svg.call(zoomBeh.transform, d3.zoomIdentity);
-    log.info(`Frise récursive : ${boxes.length} boîte(s)` +
-      (down.subs.length ? `, ${down.subs.length} sous-famille(s) descendant(es)` : ''));
+    log.info(`Frise chronologique : ${boxes.length} boîte(s) ` +
+      `(${upGen} gén. ascendants symétriques, ${downGen} gén. descendants)`);
   }
 
   log.info('Vue chronologique généalogique initialisée');
