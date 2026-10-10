@@ -1,5 +1,5 @@
 /**
- * timeline.js — Jalon M5 v2 : vue chronologique généalogique.
+ * timeline.js — Vue chronologique généalogique.
  *
  * L'arbre combiné (ascendants/descendants/conjoints) est « déformé » sur
  * l'axe du temps :
@@ -11,7 +11,8 @@
  *    connue (sinon : moyenne des naissances des parents + 25 ans) ;
  *  - anti-chevauchement : packing d'intervalles en sous-lignes par bande.
  *
- * Tooltip au survol (détail complet), clic → callback de sélection.
+ * Infobulle au survol + surbrillance de la famille. Réglages (générations,
+ * recentrage) pilotés par la barre de vues (app.js).
  */
 import * as d3 from 'd3';
 import { logger } from './logger.js';
@@ -23,11 +24,15 @@ const log = logger('timeline');
 const ROW_H = 18;      // hauteur d'une ligne de vie
 const BOX_GAP = 6;     // écart horizontal minimum entre boîtes d'une même ligne
 const MIN_BOX_W = 16;  // largeur minimale d'une boîte
-const BAND_GAP = 26;   // espace vertical entre bandes (passage des filiations)
+const BAND_GAP = 26;    // espace vertical entre bandes (passage des filiations)
 const TOP_PAD = 26;    // place pour l'axe des années
 
-/** Ensemble des ids de la « famille » d'un individu : conjoints, enfants,
- *  parents, fratrie (pour la surbrillance au survol). */
+/**
+ * Ensemble des ids de la « famille » d'un individu (surbrillance au survol).
+ * @param {Object} index - index applicatif
+ * @param {Object} person - individu normalisé
+ * @returns {Set<string>}
+ */
 function familySet(index, person) {
   const s = new Set([person.id]);
   for (const fid of person.familyAsSpouse) {
@@ -42,7 +47,7 @@ function familySet(index, person) {
     if (!fam) continue;
     if (fam.husband) s.add(fam.husband);
     if (fam.wife) s.add(fam.wife);
-    fam.children.forEach((c) => c && s.add(c));   // fratrie incluse
+    fam.children.forEach((c) => c && s.add(c));
   }
   return s;
 }
@@ -51,14 +56,13 @@ function familySet(index, person) {
  * Initialise la vue chronologique généalogique.
  * @param {Object} options
  * @param {HTMLElement} options.container - élément hôte du SVG
- * @param {HTMLElement} [options.controls] - conteneur des infos/contrôles
  * @param {Object} options.index - index applicatif
- * @param {number} [options.upGen=6] - générations d'ascendants
- * @param {number} [options.downGen=6] - générations de descendants
+ * @param {number} [options.upGen=3] - générations d'ascendants initiales
+ * @param {number} [options.downGen=3] - générations de descendants initiales
  * @param {Function} [options.onSelectPerson] - callback clic sur une boîte
- * @returns {{update: Function}} API de la vue
+ * @returns {{update: Function, setGenerations: Function, reset: Function}}
  */
-export function initTimeline({ container, controls, index, upGen = 6, downGen = 6, onSelectPerson }) {
+export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelectPerson }) {
   container.innerHTML = '';
   let currentRootId = null;
 
@@ -71,7 +75,7 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
     .on('zoom', (event) => gZoom.attr('transform', event.transform));
   svg.call(zoomBeh);
 
-  // infobulle partagée avec l'arbre (même classe, même style)
+  // infobulle partagée avec l'arbre
   let tip = d3.select('body').select('div.tree-tip');
   if (tip.empty()) tip = d3.select('body').append('div').attr('class', 'tree-tip');
   const positionTip = (event) => {
@@ -82,12 +86,6 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
     if (y + h > window.innerHeight - 8) y = event.clientY - h - 14;
     tip.style('left', x + 'px').style('top', y + 'px');
   };
-
-  if (controls) {
-    controls.innerHTML = '';
-    d3.select(controls).append('span')
-      .text('Axe horizontal = temps · molette = zoom · glisser = déplacer · survol = détail');
-  }
 
   /** Contenu HTML de l'infobulle (complet : dates, unions, enfants). */
   function buildTooltipHtml(p) {
@@ -116,6 +114,22 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
     return rows.join('');
   }
 
+  /** Estompe la frise hors famille de l'individu survolé. */
+  function highlightFamily(person) {
+    const fam = familySet(index, person);
+    gView.selectAll('g.tl-box')
+      .classed('dim', (b) => !fam.has(b.id))
+      .classed('hl', (b) => fam.has(b.id) && b.id !== person.id);
+    gView.selectAll('path.tl-link, line.tl-marry')
+      .classed('dim', (l) => !(l.ids && l.ids.some((i) => fam.has(i))));
+  }
+
+  /** Rétablit l'opacité normale. */
+  function clearHighlight() {
+    gView.selectAll('g.tl-box').classed('dim', false).classed('hl', false);
+    gView.selectAll('path.tl-link, line.tl-marry').classed('dim', false);
+  }
+
   /** Collecte les individus du périmètre avec leur bande (depth signée). */
   function collectPersons(rootId) {
     const map = new Map();   // id -> {person, depth}
@@ -133,7 +147,6 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
       const p = index.getIndividual(rootId);
       if (p) map.set(rootId, { person: p, depth: 0 });
     }
-    // conjoints : même bande que leur époux/épouse
     for (const { person, depth } of [...map.values()]) {
       for (const famId of person.familyAsSpouse) {
         const fam = index.getFamily(famId);
@@ -172,9 +185,8 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
     const nowYear = new Date().getFullYear();
     const persons = collectPersons(rootId);
 
-    // ---------- années extrêmes et échelle ----------
     let minYear = Infinity, maxYear = -Infinity;
-    const entries = [];   // {id, person, depth, x1, x2, alive}
+    const entries = [];
     let skipped = 0;
     for (const [id, { person, depth }] of persons) {
       const span = lifeYears(person, nowYear);
@@ -197,8 +209,7 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
     }
     const depths = [...byDepth.keys()].sort((a, b) => a - b);
 
-    // pack : chaque bande = liste de sous-lignes de boîtes sans chevauchement
-    const bands = new Map();   // depth -> {rows: [[entry]], top, h}
+    const bands = new Map();
     for (const d of depths) {
       const list = byDepth.get(d).sort((a, b) => a.x1 - b.x1 || a.x2 - b.x2);
       const rows = [];
@@ -215,7 +226,6 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
       bands.set(d, { rows, top: 0, h: rows.length * ROW_H });
     }
 
-    // positions verticales : bandes empilées dans l'ordre des depths
     let y = TOP_PAD;
     for (const d of depths) {
       const b = bands.get(d);
@@ -243,13 +253,19 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
       .attr('y', 10).attr('text-anchor', 'middle').text((t) => t);
 
     // ---------- liens de filiation ----------
-    // pour chaque individu de profondeur d, parents attendus en bande d-1
-    const inBand = new Map();   // id -> depth réelle
+    const inBand = new Map();
     for (const e of entries) inBand.set(e.id, e.depth);
     const eById = new Map(entries.map((e) => [e.id, e]));
 
+    /** Index de sous-ligne d'une entrée dans sa bande. */
+    function findRowIndex(band, e) {
+      for (let i = 0; i < band.rows.length; i++) {
+        if (band.rows[i].includes(e)) return i;
+      }
+      return 0;
+    }
+
     for (const e of entries) {
-      if (e.depth === -0 && e.id === rootId) { /* racine : parents en -1 */ }
       const parentsBand = e.depth - 1;
       if (!bands.has(parentsBand)) continue;
       const parentBand = bands.get(parentsBand);
@@ -260,7 +276,6 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
         if (!fam) continue;
         const pIn = [fam.husband, fam.wife].filter((pid) => inBand.get(pid) === parentsBand);
         if (!pIn.length) continue;
-        // X de départ : date de mariage si connue, sinon heuristique
         let mYear = fam.marriage.value?.year ?? null;
         if (mYear == null) {
           const births = pIn.map((pid) => eById.get(pid)).map((pe) => pe?.x1).filter((v) => v != null);
@@ -274,20 +289,11 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
         gView.append('path').attr('class', 'tl-link')
           .datum({ ids })
           .attr('d', `M ${mx} ${bandBottom} C ${mx} ${bandBottom + 12}, ${childX} ${childY - 12}, ${childX} ${childY}`);
-        // repère de mariage : petit trait orange
         gView.append('line').attr('class', 'tl-marry')
           .datum({ ids })
           .attr('x1', mx).attr('y1', bandBottom - 6)
           .attr('x2', mx).attr('y2', bandBottom + 2);
       }
-    }
-
-    /** Index de sous-ligne d'une entrée dans sa bande. */
-    function findRowIndex(band, e) {
-      for (let i = 0; i < band.rows.length; i++) {
-        if (band.rows[i].includes(e)) return i;
-      }
-      return 0;
     }
 
     // ---------- boîtes ----------
@@ -310,7 +316,6 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
             return cls.filter(Boolean).join(' ');
           });
 
-        // nom si la place le permet
         sel.filter((e) => e.px2 - e.px1 > 34).append('text')
           .attr('x', 3).attr('y', ROW_H / 2 - 1)
           .text((e) => {
@@ -326,27 +331,25 @@ export function initTimeline({ container, controls, index, upGen = 6, downGen = 
           .on('pointerover', (event, e) => {
             tip.html(buildTooltipHtml(e.person)).style('display', 'block');
             positionTip(event);
-            const fam = familySet(index, e.person);
-            gView.selectAll('g.tl-box')
-              .classed('dim', (b) => !fam.has(b.id))
-              .classed('hl', (b) => fam.has(b.id) && b.id !== e.id);
-            gView.selectAll('path.tl-link, line.tl-marry')
-              .classed('dim', (l) => !(l.ids && l.ids.some((i) => fam.has(i))));
+            highlightFamily(e.person);
           })
           .on('pointermove', positionTip)
           .on('pointerout', () => {
             tip.style('display', 'none');
-            gView.selectAll('g.tl-box').classed('dim', false).classed('hl', false);
-            gView.selectAll('path.tl-link, line.tl-marry').classed('dim', false);
+            clearHighlight();
           });
       });
     }
 
-    svg.call(zoomBeh.transform, d3.zoomIdentity);   // vue non zoomée à chaque update
+    svg.call(zoomBeh.transform, d3.zoomIdentity);
     log.info(`Frise chronologique : ${entries.length} boîte(s) sur ${depths.length} bande(s)`
       + `${skipped ? `, ${skipped} sans dates ignoré(es)` : ''}`);
   }
 
   log.info('Vue chronologique généalogique initialisée');
-  return { update };
+  return {
+    update,
+    setGenerations: (u, d) => { upGen = u; downGen = d; update(currentRootId); },
+    reset: () => svg.call(zoomBeh.transform, d3.zoomIdentity),
+  };
 }

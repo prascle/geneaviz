@@ -1,19 +1,20 @@
 /**
- * tree.js — Jalon M4 : vue combinée ascendants/descendants (D3).
+ * tree.js — Vue arbre combiné ascendants/descendants (D3).
  *
  * Layout :
- *  - Ascendants (gauche) : fan-out par générations (layout d3.tree, comme M3).
+ *  - Ascendants (gauche) : fan-out par générations (layout d3.tree).
  *    Les deux parents d'un même enfant sont reliés par un crochet d'union
- *    (petits traits horizontaux + trait vertical) et la filiation vers l'enfant
- *    part du milieu de ce crochet. Parent inconnu → carte fantôme au-dessus,
- *    pour que la filiation parte toujours d'un couple.
- *  - Descendants (droite) : layout dédié — chaque individu est affiché avec
- *    ses conjoints empilés en dessous (remariages → pile, conjoint inconnu →
- *    fantôme), reliés par un trait vertical ; les liens de filiation partent
- *    du milieu du segment individu-concerné.
+ *    (petits traits horizontaux + trait vertical) et la filiation vers
+ *    l'enfant part du milieu de ce crochet. Parent inconnu → carte fantôme.
+ *  - Descendants (droite) : chaque individu est affiché avec ses conjoints
+ *    empilés en dessous (remariages → pile, conjoint inconnu → fantôme),
+ *    reliés par un trait vertical ; les filiations partent du milieu du
+ *    segment individu–conjoint.
  *  - Fonds selon le sexe (bleu clair homme, rose clair femme, blanc inconnu).
  *    Dates estimées : préfixe « ≈ », cadre en tirets.
- *  - Bouton « Recentrer » : ajuste zoom et position pour tout revoir.
+ *  - Infobulle au survol (détail complet) + surbrillance de la famille
+ *    (proches en évidence, reste estompé).
+ *  - Réglages (générations, recentrage) pilotés par la barre de vues (app.js).
  */
 import * as d3 from 'd3';
 import { logger } from './logger.js';
@@ -27,7 +28,6 @@ const GAP_Y = 16;    // espace vertical minimum entre cartes
 const GAP_X = 60;    // espace horizontal entre générations
 const STACK_STEP = NODE_H + GAP_Y;             // pas vertical de la pile des conjoints
 const ANCESTOR_ROW = 2 * NODE_H + 2 * GAP_Y;   // espacement vertical ancêtres
-                                               // (laisse la place aux fantômes)
 
 /* ------------------------------------------------------------------ */
 /* Hiérarchies (API publique, utile en console)                        */
@@ -94,7 +94,7 @@ export function buildDescendantTree(index, rootId, maxGen) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Vue                                                                 */
+/* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
 /** Année d'affichage d'une DateInfo (préfixe ≈ si estimée). */
@@ -119,8 +119,19 @@ function sexClass(person) {
   return person.sex === 'M' ? 'm' : person.sex === 'F' ? 'f' : null;
 }
 
-/** Ensemble des ids de la « famille » d'un individu : conjoints, enfants,
- *  parents, fratrie (pour la surbrillance au survol). */
+/** Courbe de filiation (bezier horizontale). */
+function filiationPath(x1, y1, x2, y2) {
+  const dx = (x2 - x1) / 2;
+  return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+}
+
+/**
+ * Ensemble des ids de la « famille » d'un individu : conjoints, enfants,
+ * parents, fratrie (pour la surbrillance au survol).
+ * @param {Object} index - index applicatif
+ * @param {Object} person - individu normalisé
+ * @returns {Set<string>}
+ */
 function familySet(index, person) {
   const s = new Set([person.id]);
   for (const fid of person.familyAsSpouse) {
@@ -140,26 +151,25 @@ function familySet(index, person) {
   return s;
 }
 
-/** Courbe de filiation (bezier horizontale). */
-function filiationPath(x1, y1, x2, y2) {
-  const dx = (x2 - x1) / 2;
-  return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-}
+/* ------------------------------------------------------------------ */
+/* Vue                                                                 */
+/* ------------------------------------------------------------------ */
 
 /**
  * Initialise la vue « arbre combiné ascendants/descendants ».
  * @param {Object} options
  * @param {HTMLElement} options.container - élément hôte du SVG
- * @param {HTMLElement} [options.controls] - conteneur des sélecteurs et du bouton
  * @param {Object} options.index - index applicatif
+ * @param {number} [options.upGen=3] - générations d'ascendants initiales
+ * @param {number} [options.downGen=3] - générations de descendants initiales
  * @param {Function} [options.onSelectNode] - callback clic sur un individu
  * @returns {{update: Function, getRootId: Function,
- *            setGenerations: Function}} API de la vue
+ *            setGenerations: Function, reset: Function}} API de la vue
  */
-export function initTree({ container, controls, index, onSelectNode }) {
+export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNode }) {
   container.innerHTML = '';
-  let upGen = 6;      // générations d'ascendants (0 = aucune)
-  let downGen = 6;    // générations de descendants (0 = aucune)
+  upGen = upGen;      // générations d'ascendants (0 = aucune) — réglage partagé
+  downGen = downGen;  // générations de descendants (0 = aucune)
   let currentRootId = null;
 
   const svg = d3.select(container).append('svg')
@@ -172,7 +182,7 @@ export function initTree({ container, controls, index, onSelectNode }) {
     .on('zoom', (event) => gZoom.attr('transform', event.transform));
   svg.call(zoomBeh);
 
-  // Infobulle de survol (M4.1)
+  // infobulle de survol (partagée avec la vue chronologique)
   let tip = d3.select('body').select('div.tree-tip');
   if (tip.empty()) tip = d3.select('body').append('div').attr('class', 'tree-tip');
 
@@ -208,58 +218,48 @@ export function initTree({ container, controls, index, onSelectNode }) {
     else svg.call(zoomBeh.transform, t);
   }
 
-  if (controls) {
-    controls.innerHTML = '';
-    const wrap = d3.select(controls);
-    const mkSelect = (labelText, initial, onChange) => {
-      const label = wrap.append('label');
-      label.append('span').text(labelText);
-      const sel = label.append('select');
-      sel.selectAll('option')
-        .data([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        .join('option')
-        .attr('value', (d) => d)
-        .text((d) => d === 0 ? 'aucune' : String(d))
-        .property('selected', (d) => d === initial);
-      sel.on('change', () => onChange(Number(sel.node().value)));
-    };
-    mkSelect('↑ Ascendants : ', upGen, (v) => { upGen = v; update(currentRootId); });
-    mkSelect('↓ Descendants : ', downGen, (v) => { downGen = v; update(currentRootId); });
-    wrap.append('button')
-      .attr('type', 'button')
-      .attr('class', 'tree-reset')
-      .text('⟲ Recentrer')
-      .on('click', () => resetView(true));
-  }
-
-  /** Contenu HTML compact de l'infobulle pour un individu. */
-  function buildTooltipHtml(person) {
+  /** Contenu HTML de l'infobulle (complet : dates, unions, enfants). */
+  function buildTooltipHtml(p) {
     const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
       (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const dHtml = (d) => yearLabel(d)
       + (d.status === 'estimated' && d.estimatedFrom
           ? ` <small>(${esc(d.estimatedFrom)})</small>` : '');
-
     const rows = [
-      `<div class="tip-name">${esc((person.name.surname || '?').toUpperCase())} ${esc(person.name.given)}</div>`,
-      `<div class="tip-dates">naissance ${dHtml(person.birth)} · décès ${dHtml(person.death)}</div>`,
+      `<div class="tip-name">${esc((p.name.surname || '?').toUpperCase())} ${esc(p.name.given)}</div>`,
+      `<div class="tip-dates">naissance ${dHtml(p.birth)} · décès ${dHtml(p.death)}</div>`,
     ];
-    for (const famId of person.familyAsSpouse) {
+    for (const famId of p.familyAsSpouse) {
       const fam = index.getFamily(famId);
       if (!fam) continue;
-      const sid = fam.husband === person.id ? fam.wife : fam.husband;
+      const sid = fam.husband === p.id ? fam.wife : fam.husband;
       const sp = sid ? index.getIndividual(sid) : null;
-      const label = sp
-        ? `${esc(sp.name.surname.toUpperCase())} ${esc(sp.name.given)}`
-        : 'inconnu·e';
-      rows.push(`<div class="tip-fam">union : ${label}`
+      rows.push(`<div class="tip-fam">union : ${sp
+        ? `${esc(sp.name.surname.toUpperCase())} ${esc(sp.name.given)}` : 'inconnu·e'}`
+        + (fam.marriage.value ? ` — mariage ${dHtml(fam.marriage)}` : '')
         + (fam.children.length ? ` — ${fam.children.length} enfant(s)` : '') + '</div>');
     }
-    rows.push(`<div class="tip-id">${esc(person.id)}</div>`);
+    rows.push(`<div class="tip-id">${esc(p.id)}</div>`);
     return rows.join('');
   }
 
-  /** Ajoute rect + textes + clic à une sélection de cartes. */
+  /** Estompe le graphe hors famille de l'individu survolé. */
+  function highlightFamily(person) {
+    const fam = familySet(index, person);
+    gView.selectAll('g.tree-node')
+      .classed('dim', (n) => !n.ghost && !fam.has(n.id))
+      .classed('hl', (n) => !n.ghost && fam.has(n.id) && n.id !== person.id);
+    gView.selectAll('path.tree-link').classed('dim', (l) => !l.ids.some((i) => fam.has(i)));
+    gView.selectAll('line.spouse-link').classed('dim', (l) => !l.ids.some((i) => fam.has(i)));
+  }
+
+  /** Rétablit l'opacité normale. */
+  function clearHighlight() {
+    gView.selectAll('g.tree-node').classed('dim', false).classed('hl', false);
+    gView.selectAll('path.tree-link, line.spouse-link').classed('dim', false);
+  }
+
+  /** Ajoute rect + textes + interactions à une sélection de cartes. */
   function drawCards(sel) {
     sel.append('rect')
       .attr('width', NODE_W).attr('height', NODE_H).attr('rx', 6)
@@ -294,18 +294,12 @@ export function initTree({ container, controls, index, onSelectNode }) {
       .on('pointerover', (event, d) => {
         tip.html(buildTooltipHtml(d.person)).style('display', 'block');
         positionTip(event);
-        const fam = familySet(index, d.person);
-        gView.selectAll('g.tree-node')
-          .classed('dim', (n) => !n.ghost && !fam.has(n.id))
-          .classed('hl', (n) => !n.ghost && fam.has(n.id) && n.id !== d.id);
-        gView.selectAll('path.tree-link').classed('dim', (l) => !l.ids.some((i) => fam.has(i)));
-        gView.selectAll('line.spouse-link').classed('dim', (l) => !l.ids.some((i) => fam.has(i)));
+        highlightFamily(d.person);
       })
       .on('pointermove', positionTip)
       .on('pointerout', () => {
         tip.style('display', 'none');
-        gView.selectAll('g.tree-node').classed('dim', false).classed('hl', false);
-        gView.selectAll('path.tree-link, line.spouse-link').classed('dim', false);
+        clearHighlight();
       });
   }
 
@@ -313,9 +307,6 @@ export function initTree({ container, controls, index, onSelectNode }) {
 
   /**
    * Construit une unité descendante et mesure son sous-arbre.
-   * @param {string} personId
-   * @param {number} depth
-   * @param {Set<string>} seen - anti-doublons (personnes et conjoints)
    * @returns {{person: Object, rows: number, blockH: number, h: number,
    *            unions: Array<{famId, spouseId, hasRow, ghost, children: Object[]}>}}
    */
@@ -332,7 +323,6 @@ export function initTree({ container, controls, index, onSelectNode }) {
       const childrenIds = fam.children.filter(Boolean);
       if (!spouseId && childrenIds.length === 0) continue;
 
-      // ligne de conjoint : réelle, fantôme (inconnu avec enfants), ou aucune
       let hasRow = false, ghost = false;
       if (spouseId && !seen.has(spouseId)) { hasRow = true; seen.add(spouseId); }
       else if (!spouseId && childrenIds.length > 0) { hasRow = true; ghost = true; }
@@ -361,10 +351,6 @@ export function initTree({ container, controls, index, onSelectNode }) {
   /**
    * Place une unité descendante : pile individu+conjoints, filiations,
    * puis récursion sur les enfants (colonne suivante).
-   * @param {Object} unit - sortie de buildDownUnit
-   * @param {number} xLeft - bord gauche de la colonne
-   * @param {number} yCenter - centre vertical alloué à l'unité
-   * @param {Object} out - accumulateur {cards, unions, filiation}
    */
   function placeDown(unit, xLeft, yCenter, out) {
     const nRows = unit.rows;
@@ -378,7 +364,6 @@ export function initTree({ container, controls, index, onSelectNode }) {
       cx: xLeft + NODE_W / 2, cy: rowY(0),
     });
 
-    // pile des conjoints + origine de filiation de chaque union
     let r = 0;
     const origins = [];
     for (const u of unit.unions) {
@@ -397,7 +382,6 @@ export function initTree({ container, controls, index, onSelectNode }) {
         }
         origins.push({ union: u, x: xLeft + NODE_W, y: (rowY(0) + rowY(r)) / 2 });
       } else {
-        // conjoint déjà affiché ailleurs : filiation part de l'individu
         origins.push({ union: u, x: xLeft + NODE_W, y: rowY(0) });
       }
     }
@@ -409,7 +393,6 @@ export function initTree({ container, controls, index, onSelectNode }) {
                                             .map((u) => u.spouseId)] });
     }
 
-    // enfants de toutes les unions, empilés et centrés sur l'unité
     let acc = yCenter - unit.blockH / 2, first = true;
     for (const o of origins) {
       for (const c of o.union.children) {
@@ -428,11 +411,9 @@ export function initTree({ container, controls, index, onSelectNode }) {
   /* ---------- layout ascendant : d3.tree + crochets d'union ---------- */
 
   /**
-   * Dessine le côté ascendant : fan-out d3.tree (comme M3), crochets de
-   * couple entre co-parents d'un même enfant, fantôme si parent inconnu,
-   * filiation partant du milieu du crochet.
-   * @param {string} rootId
-   * @param {Object} out - accumulateur {cards, unions, filiation}
+   * Dessine le côté ascendant : fan-out d3.tree, crochets de couple entre
+   * co-parents d'un même enfant, fantôme si parent inconnu, filiation
+   * partant du milieu du crochet.
    */
   function placeUp(rootId, out) {
     const data = buildAncestorTree(index, rootId, upGen);
@@ -442,12 +423,11 @@ export function initTree({ container, controls, index, onSelectNode }) {
     d3.tree().nodeSize([ANCESTOR_ROW, NODE_W + GAP_X])(h);
     const nodes = h.descendants();
     const rootNode = nodes[0];
-    const shift = rootNode.x;   // aligne le milieu des parents de la racine sur y=0
+    const shift = rootNode.x;
     const cardX = (n) => NODE_W / 2 - n.y;
     const byId = new Map();
     for (const n of nodes) if (n.depth > 0) byId.set(n.data.id, n);
 
-    // cartes
     for (const n of nodes) {
       if (n.depth === 0) continue;
       out.cards.set(n.data.id + '@a', {
@@ -456,8 +436,7 @@ export function initTree({ container, controls, index, onSelectNode }) {
       });
     }
 
-    // unions par famille (co-parents d'un même enfant de l'arbre)
-    const ancUnions = new Map();   // famId -> {a: nœud, b: nœud|null}
+    const ancUnions = new Map();
     for (const n of nodes) {
       if (n.depth === 0) continue;
       const child = n.parent.data.person;
@@ -468,17 +447,15 @@ export function initTree({ container, controls, index, onSelectNode }) {
         if (other) {
           const on = byId.get(other);
           if (on && on.parent === n.parent) ancUnions.set(famId, { a: n, b: on });
-          // conjoint existant mais placé ailleurs : pas de crochet
         } else {
-          ancUnions.set(famId, { a: n, b: null });   // parent inconnu → fantôme
+          ancUnions.set(famId, { a: n, b: null });
         }
       }
     }
 
-    // filiations (une par arête enfant→parent, ou une par couple)
     const drawnEdges = new Set();
     const drawnBrackets = new Set();
-    const ghostCount = new Map();   // nodeId -> nombre de fantômes déjà posés
+    const ghostCount = new Map();
     for (const n of nodes) {
       if (n.depth === 0) continue;
       const childNode = n.parent;
@@ -505,7 +482,7 @@ export function initTree({ container, controls, index, onSelectNode }) {
         } else {
           const k = ghostCount.get(u.a.data.id) ?? 0;
           ghostCount.set(u.a.data.id, k + 1);
-          by = ay - (k + 1) * STACK_STEP;   // fantôme au-dessus du parent connu
+          by = ay - (k + 1) * STACK_STEP;
           out.cards.set('ghost:' + famId, {
             id: 'ghost:' + famId, person: null, ghost: true, isRoot: false,
             cx: cardX(u.a), cy: by,
@@ -522,8 +499,8 @@ export function initTree({ container, controls, index, onSelectNode }) {
                              ids: [u.a.data.id, u.b ? u.b.data.id : null, childNode.data.id]
                                .filter(Boolean) });
       } else {
-        // pas de couple identifiable : filiation directe depuis le parent
-        out.filiation.push({ d: filiationPath(cardX(n) + NODE_W / 2, n.x - shift, childLeftX, childY),
+        out.filiation.push({ d: filiationPath(cardX(n) + NODE_W / 2, n.x - shift,
+                                             childLeftX, childY),
                              ids: [n.data.id, childNode.data.id] });
       }
     }
@@ -533,7 +510,7 @@ export function initTree({ container, controls, index, onSelectNode }) {
   function update(rootId) {
     if (!rootId) return;
     currentRootId = rootId;
-    tip.style('display', 'none');   // fermer l'infobulle au redessin
+    tip.style('display', 'none');
     gView.selectAll('*').remove();
 
     const rootPerson = index.getIndividual(rootId);
@@ -545,7 +522,6 @@ export function initTree({ container, controls, index, onSelectNode }) {
 
     const out = { cards: new Map(), unions: [], filiation: [] };
 
-    // ---------- côté descendants ----------
     let rootDrawn = false;
     if (downGen > 0) {
       const unit = buildDownUnit(rootId, 0, new Set());
@@ -558,11 +534,8 @@ export function initTree({ container, controls, index, onSelectNode }) {
         cx: NODE_W / 2, cy: 0,
       });
     }
-
-    // ---------- côté ascendants ----------
     if (upGen > 0) placeUp(rootId, out);
 
-    // ---------- rendu ----------
     gView.selectAll(null)
       .data(out.filiation)
       .join('path')
@@ -583,7 +556,7 @@ export function initTree({ container, controls, index, onSelectNode }) {
         'translate(' + (d.cx - NODE_W / 2) + ',' + (d.cy - NODE_H / 2) + ')');
     drawCards(node);
 
-    resetView(false);   // chaque nouvelle racine recadre la vue
+    resetView(false);
     log.info('Vue combinée dessinée : ' + out.cards.size + ' carte(s), ' +
       out.unions.length + ' trait(s) d\'union, ' + upGen + ' gén. ascendants, ' +
       downGen + ' gén. descendants');
@@ -594,5 +567,6 @@ export function initTree({ container, controls, index, onSelectNode }) {
     update,
     getRootId: () => currentRootId,
     setGenerations: (up, down) => { upGen = up; downGen = down; update(currentRootId); },
+    reset: () => resetView(true),
   };
 }

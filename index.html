@@ -26,6 +26,13 @@
   #details td:first-child { color: #666; }
   .est { color: #b45309; font-style: italic; }
   pre { background: #f8f8f8; padding: 1rem; overflow: auto; }
+  #view-bar { display: flex; gap: .5rem; align-items: center; margin: 1rem 0; flex-wrap: wrap; }
+  .view-btn { padding: .45rem 1rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
+  .view-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  #view-bar select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
+  #view-bar label { display: flex; gap: .3rem; align-items: center; color: #555; }
+  .vsep { width: 1px; height: 1.6rem; background: #e5e7eb; margin: 0 .4rem; }
+  #btn-reset { padding: .45rem .9rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
   #tree-controls { display: flex; gap: 1.25rem; align-items: center; margin: .5rem 0; color: #555; flex-wrap: wrap; }
   #tree-controls label { display: flex; gap: .35rem; align-items: center; }
   #tree-controls select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
@@ -95,6 +102,15 @@
 
 <div id="status">En attente d'un fichier…</div>
 
+<div id="view-bar" hidden>
+  <button type="button" class="view-btn active" data-view="tree">Arbre</button>
+  <button type="button" class="view-btn" data-view="chrono">Chronologique</button>
+  <span class="vsep"></span>
+  <label>↑ Ascendants <select id="gen-up"></select></label>
+  <label>↓ Descendants <select id="gen-down"></select></label>
+  <button type="button" id="btn-reset">⟲ Recentrer</button>
+</div>
+
 <section id="search-section" hidden>
   <h2>Rechercher un individu</h2>
   <div id="search-container"></div>
@@ -107,13 +123,11 @@
 
 <section id="tree-section" hidden>
   <h2>Arbre combiné ascendants / descendants</h2>
-  <div id="tree-controls"></div>
   <div id="tree-container"></div>
 </section>
 
 <section id="timeline-section" hidden>
   <h2>Vue chronologique</h2>
-  <div id="timeline-controls"></div>
   <div id="timeline-container"></div>
 </section>
 

@@ -1,8 +1,8 @@
 /**
- * app.js — Point d'entrée. Jalon M3 :
+ * app.js — Point d'entrée. Jalon M5 :
  * charger un fichier, indexer, estimer les dates, rechercher un individu,
- * afficher son détail et dessiner son arbre combiné ascendants/descendants (D3).
- * Jalon M5 : vue chronologique (frise des vies).
+ * afficher son détail et naviguer entre les vues : arbre combiné (D3) et
+ * vue chronologique. Barre de vues partagée : générations, recentrage.
  */
 import { logger } from './logger.js';
 import { readGedcomFile, parseGedcom } from './gedcomLoader.js';
@@ -14,8 +14,8 @@ import { initTimeline } from './timeline.js';
 import { formatDate } from './utils.js';
 
 const log = logger('app');
-let treeApi = null;   // vue arbre combiné (M3)
-let timelineApi = null;   // vue chronologique (M5)
+let treeApi = null;         // vue arbre combiné
+let timelineApi = null;     // vue chronologique
 const statusEl = document.getElementById('status');
 const outputEl = document.getElementById('output');
 const searchSection = document.getElementById('search-section');
@@ -36,7 +36,7 @@ function setStatus(msg, isError = false) {
 
 /**
  * Traite un fichier GEDCOM sélectionné : lecture → parsing → index → estimation,
- * puis active la recherche.
+ * puis active la recherche et les vues.
  * @param {File} file
  * @returns {Promise<void>}
  */
@@ -56,41 +56,78 @@ async function handleFile(file) {
       `${index.peopleCount} individus, ${index.familyCount} familles, ` +
       `${index.surnameCount} patronymes.`);
 
+    // ---------- Vues (arbre + chronologique) : réglages partagés ----------
+    treeApi = initTree({
+      container: document.getElementById('tree-container'),
+      index,
+      onSelectNode: (id) => showDetails(index, id),
+    });
+    timelineApi = initTimeline({
+      container: document.getElementById('timeline-container'),
+      index,
+      onSelectPerson: (id) => { showDetails(index, id); setRoot(id); },
+    });
+    window.genea.tree = treeApi;
+    window.genea.timeline = timelineApi;
+
+    /** Sélectionne la racine courante et resynchronise les deux vues. */
+    function setRoot(id) {
+      window.genea.state = { rootId: id };
+      treeApi.update(id);
+      timelineApi.update(id);
+    }
+
     // ---------- Barre de recherche (M1) ----------
     const container = document.getElementById('search-container');
     container.innerHTML = '';
     initSearchBar({
       container,
       searchService,
-      onSelect: (id) => { showDetails(index, id); treeApi.update(id); timelineApi.update(id); },
+      onSelect: (id) => { showDetails(index, id); setRoot(id); },
     });
     searchSection.hidden = false;
     detailSection.hidden = false;
 
-    // ---------- Arbre combiné ascendants/descendants (M3) ----------
-    treeApi = initTree({
-      container: document.getElementById('tree-container'),
-      controls: document.getElementById('tree-controls'),
-      index,
-      onSelectNode: (id) => showDetails(index, id),
-    });
-    window.genea.tree = treeApi;
-    treeSection.hidden = false;
+    // ---------- Barre de vues ----------
+    const genUpSel = document.getElementById('gen-up');
+    const genDownSel = document.getElementById('gen-down');
+    const btnReset = document.getElementById('btn-reset');
+    const viewBtns = [...document.querySelectorAll('.view-btn')];
+    const viewSections = { tree: treeSection, chrono: timelineSection };
+    let activeView = 'tree';
 
-    // ---------- Vue chronologique (M5) ----------
-    timelineApi = initTimeline({
-      container: document.getElementById('timeline-container'),
-      controls: document.getElementById('timeline-controls'),
-      index,
-      onSelectPerson: (id) => { showDetails(index, id); treeApi.update(id); timelineApi.update(id); },
-    });
-    window.genea.timeline = timelineApi;
-    timelineSection.hidden = false;
-    timelineApi.update(null);   // frise vide tant qu'aucune sélection
+    for (const sel of [genUpSel, genDownSel]) {
+      for (let n = 0; n <= 10; n++) {
+        const o = document.createElement('option');
+        o.value = String(n);
+        o.textContent = n === 0 ? 'aucune' : String(n);
+        sel.appendChild(o);
+      }
+    }
+    genUpSel.value = '3'; genDownSel.value = '3';   // défaut partagé
+
+    const applyGens = () => {
+      const u = Number(genUpSel.value), d = Number(genDownSel.value);
+      treeApi.setGenerations(u, d);
+      timelineApi.setGenerations(u, d);
+    };
+    genUpSel.addEventListener('change', applyGens);
+    genDownSel.addEventListener('change', applyGens);
+
+    function showView(name) {
+      activeView = name;
+      viewBtns.forEach((b) => b.classList.toggle('active', b.dataset.view === name));
+      for (const [k, s] of Object.entries(viewSections)) s.hidden = k !== name;
+    }
+    viewBtns.forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
+    btnReset.addEventListener('click', () =>
+      (activeView === 'tree' ? treeApi.reset() : timelineApi.reset()));
+    document.getElementById('view-bar').hidden = false;
+    showView('tree');
 
     const s = index.stats();
     outputEl.textContent =
-`Statistiques (M3)
+`Statistiques (M5)
   Individus           : ${s.people}
   Familles            : ${s.families}
   Patronymes distincts: ${s.surnames}
@@ -118,7 +155,6 @@ Dans la console :
 function showDetails(index, id) {
   const p = index.getIndividual(id);
   if (!p) { detailsEl.textContent = `Individu introuvable : ${id}`; return; }
-  window.genea.state = { rootId: id };   // racine de l'arbre (M2/M3)
 
   const dateHtml = (d, livingLabel) => {
     if (!d.value) return d.status === 'living'
