@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>GeneaViz — M4 : arbre combiné avec conjoints</title>
+<title>GeneaViz — M5 : arbre combiné avec conjoints, timeline</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.4rem; }
@@ -26,6 +26,13 @@
   #details td:first-child { color: #666; }
   .est { color: #b45309; font-style: italic; }
   pre { background: #f8f8f8; padding: 1rem; overflow: auto; }
+  #view-bar { display: flex; gap: .5rem; align-items: center; margin: 1rem 0; flex-wrap: wrap; }
+  .view-btn { padding: .45rem 1rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
+  .view-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  #view-bar select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
+  #view-bar label { display: flex; gap: .3rem; align-items: center; color: #555; }
+  .vsep { width: 1px; height: 1.6rem; background: #e5e7eb; margin: 0 .4rem; }
+  #btn-reset { padding: .45rem .9rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
   #tree-controls { display: flex; gap: 1.25rem; align-items: center; margin: .5rem 0; color: #555; flex-wrap: wrap; }
   #tree-controls label { display: flex; gap: .35rem; align-items: center; }
   #tree-controls select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
@@ -45,6 +52,10 @@
   .tree-node .node-dates { fill: #555; }
   .tree-node .node-dates.est { fill: #b45309; font-style: italic; }
   .tree-node .node-dates.ghost-label { fill: #999; font-style: italic; }
+  .tree-node, .tl-box, .tree-link, .spouse-link, .tl-link { transition: opacity .18s; }
+  .tree-node.dim, .tl-box.dim { opacity: .22; }
+  .tree-node.hl rect, .tl-box.hl rect { stroke: #2563eb; stroke-width: 2; }
+  .tree-link.dim, .spouse-link.dim, .tl-link.dim { opacity: .1; }  
   .tree-tip { position: fixed; z-index: 1000; display: none; max-width: 22rem;
     background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
     padding: .6rem .8rem; box-shadow: 0 4px 14px rgba(0,0,0,.12);
@@ -53,6 +64,21 @@
   .tree-tip .tip-dates { color: #555; }
   .tree-tip .tip-fam { color: #555; }
   .tree-tip .tip-id { color: #999; font-size: 11px; }
+  #timeline-controls { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; color: #555; font-size: .85rem; }
+  #timeline-container { overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+  .tl-grid { stroke: #eef1f4; stroke-width: 1; }
+  .tl-tick { font-size: 10px; fill: #666; }
+  .tl-box { cursor: pointer; }
+  .tl-box rect { fill: #fff; stroke: #cbd5e1; stroke-width: 1; }
+  .tl-box rect.m { fill: #dbeafe; }
+  .tl-box rect.f { fill: #fce7f3; }
+  .tl-box rect.root { stroke: #2563eb; stroke-width: 2; }
+  .tl-box rect.est { stroke: #b45309; stroke-dasharray: 4 3; }
+  .tl-box rect.alive { stroke-dasharray: 2 2; }
+  .tl-box text { font-size: 10px; fill: #1f2937; pointer-events: none; }
+  .tl-box:hover rect { stroke: #2563eb; }
+  .tl-link { fill: none; stroke: #94a3b8; stroke-width: 1.2; }
+  .tl-marry { stroke: #b45309; stroke-width: 2; }
 </style>
 <script type="importmap">
 {
@@ -67,7 +93,7 @@
 </script>
 </head>
 <body>
-<h1>GeneaViz — M4 : arbre combiné avec conjoints</h1>
+<h1>GeneaViz — M5 : arbre combiné avec conjoints, timeline</h1>
 
 <p>
   <label for="file">Fichier GEDCOM :</label>
@@ -75,6 +101,15 @@
 </p>
 
 <div id="status">En attente d'un fichier…</div>
+
+<div id="view-bar" hidden>
+  <button type="button" class="view-btn active" data-view="tree">Arbre</button>
+  <button type="button" class="view-btn" data-view="chrono">Chronologique</button>
+  <span class="vsep"></span>
+  <label>↑ Ascendants <select id="gen-up"></select></label>
+  <label>↓ Descendants <select id="gen-down"></select></label>
+  <button type="button" id="btn-reset">⟲ Recentrer</button>
+</div>
 
 <section id="search-section" hidden>
   <h2>Rechercher un individu</h2>
@@ -88,8 +123,12 @@
 
 <section id="tree-section" hidden>
   <h2>Arbre combiné ascendants / descendants</h2>
-  <div id="tree-controls"></div>
   <div id="tree-container"></div>
+</section>
+
+<section id="timeline-section" hidden>
+  <h2>Vue chronologique</h2>
+  <div id="timeline-container"></div>
 </section>
 
 <pre id="output"></pre>
