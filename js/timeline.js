@@ -248,54 +248,64 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     node.yBot = Math.max(y + node.h, ...node.subs.map((s) => s.yBot ?? 0));
   }
 
-  /** Blocs ascendants : couples de parents (mari en haut), au-dessus. */
-  function buildUpCouple(childPid, depth, seen) {
-    const p = index.getIndividual(childPid);
+  /** Construit une unité ascendante : couple + sous-unités des parents
+   *  de chacun des deux époux, avec hauteur totale précalculée. */
+  function buildUp(childId, depth, seen) {
+    const p = index.getIndividual(childId);
     const out = [];
     if (!p) return out;
     for (const fid of p.childInFamilies) {
       const fam = index.getFamily(fid);
       if (!fam) continue;
+      const nowYear = new Date().getFullYear();
       const rows = [];
       const cand = [fam.husband, fam.wife].filter(Boolean)
         .sort((a, b) => (index.getIndividual(a)?.sex === 'M' ? 0 : 1)
                       - (index.getIndividual(b)?.sex === 'M' ? 0 : 1));
       for (const pid of cand) {
-        if (seen.has(pid)) continue;
+        if (seen.has(pid) || !index.getIndividual(pid)) continue;
         seen.add(pid);
-        const par = index.getIndividual(pid);
-        const nowYear = new Date().getFullYear();
-        const l = lifeYears(par, nowYear);
-        if (l) rows.push({ id: pid, person: par, ...l });
+        const l = lifeYears(index.getIndividual(pid), nowYear);
+        if (l) rows.push({ id: pid, person: index.getIndividual(pid), ...l });
       }
       if (!rows.length) continue;
-      const node = { rows, subs: [], childPid,
-                     marr: fam.marriage.value?.year ?? null,
-                     h: rows.length * ROW_H + (rows.length - 1) * GAP_ROW,
-                     t1: Math.min(...rows.map((r) => r.t1)),
-                     t2: Math.max(...rows.map((r) => r.t2)) };
+
+      const unit = { rows, childId,
+                     marr: fam.marriage.value?.year ?? null, fams: [] };
       if (depth + 1 < upGen) {
-        for (const r of rows) node.subs.push(...buildUpCouple(r.id, depth + 1, seen));
+        for (const r of rows) unit.fams.push(...buildUp(r.id, depth + 1, seen));
       }
-      out.push(node);
+      const ownH = rows.length * ROW_H + (rows.length - 1) * GAP_ROW;
+      const famsH = unit.fams.reduce((s, f) => s + f.h + BAND_GAP, 0);
+      unit.h = ownH + famsH;
+      out.push(unit);
     }
     return out;
   }
 
-  /** Pose un bloc ascendant (conflits résolus vers le haut). */
-  function placeUp(node, maxYBottom) {
-    let y = maxYBottom - BAND_GAP - node.h, guard = 0, c;
-    while ((c = conflicts(y, node.h, node.t1, node.t2)) && guard++ < 500) {
-      y = c.yTop - node.h - GAP_ROW;
+  /** Pose une unité ascendante : couple au-dessus de yBottom, branches
+   *  paternelle puis maternelle empilées au-dessus (fan-out vertical). */
+  function placeUp(unit, yBottom) {
+    const ownH = unit.rows.length * ROW_H + (unit.rows.length - 1) * GAP_ROW;
+    let y = yBottom - BAND_GAP - ownH, guard = 0, c;
+    const t1 = Math.min(...unit.rows.map((r) => r.t1));
+    const t2 = Math.max(...unit.rows.map((r) => r.t2));
+    while ((c = conflicts(y, ownH, t1, t2)) && guard++ < 500) {
+      y = c.yTop - ownH - GAP_ROW;
     }
     let ry = y;
-    for (const r of node.rows) {
+    for (const r of unit.rows) {
       r.y = ry;
       placed.push({ yTop: r.y, yBot: r.y + ROW_H, t1: r.t1, t2: r.t2, label: r.id });
       ry += ROW_H + GAP_ROW;
     }
-    node.yTop = y;
-    for (const sub of node.subs) placeUp(sub, node.yTop);
+    unit.yTop = y; unit.yBot = y + ownH;
+    let cursor = y;
+    for (const f of unit.fams) {
+      placeUp(f, cursor);
+      cursor = f.yTop - BAND_GAP;
+    }
+    unit.yBotAll = Math.min(unit.yTop, ...unit.fams.map((f) => f.yBotAll ?? f.yTop));
   }
 
   /* ---------------- dessin ---------------- */
@@ -310,7 +320,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     // ---------- construction et placement ----------
     const down = buildDown(rootId, 0, new Set());
     placeDown(down, 0, 0);
-    const anc = buildUpCouple(rootId, 0, new Set([rootId]));
+    const anc = buildUp(rootId, 0, new Set([rootId]));
     for (const a of anc) placeUp(a, down.yTop);
 
     // ---------- collecte des lignes ----------
@@ -419,24 +429,20 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     for (const a of anc) {
       (function walkUp(n) {
         const marr = n.marr ?? heuristicMarr(n.rows);
-        if (marr != null && n.rows.length === 2) {
-          drawMarry(n.rows[0], n.rows[1], marr, [n.rows[0].id, n.rows[1].id]);
-        }
         if (marr != null) {
-          const yFrom = n.rows.length === 2
-            ? (n.rows[0].y + n.rows[1].y) / 2 + ROW_H / 2
-            : n.rows[0].y;
-          const childRow = rowMap.get(n.childPid);
+          if (n.rows.length === 2) {
+            drawMarry(n.rows[0], n.rows[1], marr, [n.rows[0].id, n.rows[1].id]);
+          }
+          const childRow = rowMap.get(n.childId);
           if (childRow) {
-            const cy = childRow.y + ROW_H / 2;
-            const cx = X(childRow.t1);
-            const dy = (yFrom - cy) / 2;
-            gView.append('path').attr('class', 'tl-link')
-              .datum({ ids: [...n.rows.map((r) => r.id), n.childPid] })
-              .attr('d', `M ${X(marr)} ${yFrom} C ${X(marr)} ${yFrom - dy}, ${cx} ${cy + dy}, ${cx} ${cy}`);
+            const yFrom = n.rows.length === 2
+              ? (n.rows[0].y + n.rows[1].y) / 2 + ROW_H / 2
+              : n.rows[0].y;
+            drawFiliation(X(marr), yFrom, n.childId,
+              [...n.rows.map((r) => r.id), n.childId]);
           }
         }
-        n.subs.forEach(walkUp);
+        n.fams.forEach(walkUp);
       })(a);
     }
 
