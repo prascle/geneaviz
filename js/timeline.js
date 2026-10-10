@@ -334,7 +334,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     };
     collect(down.rows, down.subs);
     for (const a of anc) {
-      (function walkA(n) { collect(n.rows, []); n.subs.forEach(walkA); })(a);
+      (function walkA(n) { collect(n.rows, []); n.fams.forEach(walkA); })(a);
     }
     if (!allRows.length) { log.info('Frise : aucune date exploitable'); return; }
 
