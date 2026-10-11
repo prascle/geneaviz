@@ -15,7 +15,7 @@ export function initContextMenu() {
   if (!menu) {
     menu = document.createElement('div');
     menu.className = 'ctx-menu';
-    document.body.appendChild(menu);
+    (document.getElementById('workspace') ?? document.body).appendChild(menu);
   }
   menu.style.display = 'none';
 

@@ -184,8 +184,9 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
   svg.call(zoomBeh);
 
   // infobulle de survol (partagée avec la vue chronologique)
-  let tip = d3.select('body').select('div.tree-tip');
-  if (tip.empty()) tip = d3.select('body').append('div').attr('class', 'tree-tip');
+  const tipHost = document.getElementById('workspace') ?? document.body;   // visible en plein écran
+  let tip = d3.select(tipHost).select('div.tree-tip');
+  if (tip.empty()) tip = d3.select(tipHost).append('div').attr('class', 'tree-tip');
 
   /** Positionne l'infobulle près du curseur, sans sortir de la fenêtre. */
   function positionTip(event) {

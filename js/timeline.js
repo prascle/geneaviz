@@ -78,9 +78,15 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     .on('zoom', (event) => gZoom.attr('transform', event.transform));
   svg.call(zoomBeh);
 
+  // recalcul de la hauteur en entrée/sortie du plein écran
+  document.addEventListener('fullscreenchange', () => {
+    if (currentRootId) update(currentRootId);
+  });
+  
   // infobulle partagée avec la vue arbre
-  let tip = d3.select('body').select('div.tree-tip');
-  if (tip.empty()) tip = d3.select('body').append('div').attr('class', 'tree-tip');
+  const tipHost = document.getElementById('workspace') ?? document.body;   // visible en plein écran
+  let tip = d3.select(tipHost).select('div.tree-tip');
+  if (tip.empty()) tip = d3.select(tipHost).append('div').attr('class', 'tree-tip');
   const positionTip = (event) => {
     const node = tip.node();
     const w = node.offsetWidth, h = node.offsetHeight;
@@ -375,7 +381,10 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     svg.attr('height', Math.max(totalH, 80))
        .attr('viewBox', `0 0 ${totalW} ${Math.max(totalH, 80)}`)
        .attr('preserveAspectRatio', 'xMinYMin meet');
-    container.style.height = Math.min(totalH, 720) + 'px';
+    // hauteur du conteneur : plafonnée en fenêtre normale, remplie en plein écran
+    const inFs = document.fullscreenElement != null;
+    const capH = inFs ? Math.max(window.innerHeight - 150, 320) : 720;
+    container.style.height = Math.max(Math.min(totalH, capH), 80) + 'px';
 
     // ---------- axe des années ----------
     const span = maxT - minT;
