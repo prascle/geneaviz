@@ -12,6 +12,7 @@ import { initSearchBar } from './searchBar.js';
 import { initTree } from './tree.js';
 import { initTimeline } from './timeline.js';
 import { formatDate } from './utils.js';
+import { initContextMenu } from './contextmenu.js';
 
 const log = logger('app');
 let treeApi = null;         // vue arbre combiné
@@ -56,16 +57,31 @@ async function handleFile(file) {
       `${index.peopleCount} individus, ${index.familyCount} familles, ` +
       `${index.surnameCount} patronymes.`);
 
+    // ---------- Menu contextuel (partagé par les deux vues) ----------
+    const ctxMenu = initContextMenu();
+    const onContextPerson = (person, event) => {
+      ctxMenu.show(event, [
+        { label: 'Voir le détail', action: () => showDetails(index, person.id) },
+        { label: 'Définir comme racine', action: () => { showDetails(index, person.id); setRoot(person.id); } },
+        { separator: true },
+        { label: 'Ajouter les ascendants', hint: '(M6)', disabled: true },
+        { label: 'Ajouter les descendants', hint: '(M6)', disabled: true },
+        { label: 'Retirer cette branche', hint: '(M6)', disabled: true },
+      ]);
+    };
+
     // ---------- Vues (arbre + chronologique) : réglages partagés ----------
     treeApi = initTree({
       container: document.getElementById('tree-container'),
       index,
       onSelectNode: (id) => showDetails(index, id),
+      onContextPerson,
     });
     timelineApi = initTimeline({
       container: document.getElementById('timeline-container'),
       index,
       onSelectPerson: (id) => { showDetails(index, id); setRoot(id); },
+      onContextPerson,
     });
     window.genea.tree = treeApi;
     window.genea.timeline = timelineApi;
@@ -89,6 +105,18 @@ async function handleFile(file) {
     detailSection.hidden = false;
 
     // ---------- Barre de vues ----------
+    const workspace = document.getElementById('workspace');
+    const btnFs = document.getElementById('btn-fullscreen');
+    const setFsLabel = () => {
+      btnFs.textContent = document.fullscreenElement
+        ? '⛶ Quitter plein écran' : '⛶ Plein écran';
+    };
+    btnFs.addEventListener('click', () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else workspace.requestFullscreen().catch(() =>
+        setStatus('✘ Plein écran non disponible dans ce navigateur.', true));
+    });
+    document.addEventListener('fullscreenchange', setFsLabel);
     const genUpSel = document.getElementById('gen-up');
     const genDownSel = document.getElementById('gen-down');
     const btnReset = document.getElementById('btn-reset');

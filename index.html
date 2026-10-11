@@ -33,6 +33,17 @@
   #view-bar label { display: flex; gap: .3rem; align-items: center; color: #555; }
   .vsep { width: 1px; height: 1.6rem; background: #e5e7eb; margin: 0 .4rem; }
   #btn-reset { padding: .45rem .9rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
+  #btn-fullscreen { padding: .45rem .9rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
+  #workspace:fullscreen { background: #fff; padding: 1rem 1.5rem; }
+  #workspace:fullscreen #tree-container { height: calc(100vh - 6rem); }
+  .ctx-menu { position: fixed; z-index: 1100; display: none; min-width: 15rem;
+    background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.15); padding: .3rem 0; font-size: 13px; }
+  .ctx-item { padding: .45rem .9rem; cursor: pointer; }
+  .ctx-item:hover { background: #eff6ff; }
+  .ctx-item.disabled { color: #9ca3af; cursor: default; }
+  .ctx-item.disabled:hover { background: none; }
+  .ctx-separator { height: 1px; background: #e5e7eb; margin: .3rem 0; }
   #tree-controls { display: flex; gap: 1.25rem; align-items: center; margin: .5rem 0; color: #555; flex-wrap: wrap; }
   #tree-controls label { display: flex; gap: .35rem; align-items: center; }
   #tree-controls select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
@@ -102,15 +113,6 @@
 
 <div id="status">En attente d'un fichier…</div>
 
-<div id="view-bar" hidden>
-  <button type="button" class="view-btn active" data-view="tree">Arbre</button>
-  <button type="button" class="view-btn" data-view="chrono">Chronologique</button>
-  <span class="vsep"></span>
-  <label>↑ Ascendants <select id="gen-up"></select></label>
-  <label>↓ Descendants <select id="gen-down"></select></label>
-  <button type="button" id="btn-reset">⟲ Recentrer</button>
-</div>
-
 <section id="search-section" hidden>
   <h2>Rechercher un individu</h2>
   <div id="search-container"></div>
@@ -121,15 +123,27 @@
   <div id="details">Aucun individu sélectionné.</div>
 </section>
 
-<section id="tree-section" hidden>
-  <h2>Arbre combiné ascendants / descendants</h2>
-  <div id="tree-container"></div>
-</section>
+<div id="workspace">
+  <div id="view-bar" hidden>
+    <button type="button" class="view-btn active" data-view="tree">Arbre</button>
+    <button type="button" class="view-btn" data-view="chrono">Chronologique</button>
+    <span class="vsep"></span>
+    <label>↑ Ascendants <select id="gen-up"></select></label>
+    <label>↓ Descendants <select id="gen-down"></select></label>
+    <button type="button" id="btn-reset">⟲ Recentrer</button>
+    <button type="button" id="btn-fullscreen">⛶ Plein écran</button>
+  </div>
 
-<section id="timeline-section" hidden>
-  <h2>Vue chronologique</h2>
-  <div id="timeline-container"></div>
-</section>
+  <section id="tree-section" hidden>
+    <h2>Arbre combiné ascendants / descendants</h2>
+    <div id="tree-container"></div>
+  </section>
+
+  <section id="timeline-section" hidden>
+    <h2>Vue chronologique</h2>
+    <div id="timeline-container"></div>
+  </section>
+</div>
 
 <pre id="output"></pre>
 

@@ -163,10 +163,11 @@ function familySet(index, person) {
  * @param {number} [options.upGen=3] - générations d'ascendants initiales
  * @param {number} [options.downGen=3] - générations de descendants initiales
  * @param {Function} [options.onSelectNode] - callback clic sur un individu
+ * @param {Function} [options.onContextPerson] - callback clic droit sur un individu
  * @returns {{update: Function, getRootId: Function,
  *            setGenerations: Function, reset: Function}} API de la vue
  */
-export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNode }) {
+export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNode, onContextPerson }) {
   container.innerHTML = '';
   upGen = upGen;      // générations d'ascendants (0 = aucune) — réglage partagé
   downGen = downGen;  // générations de descendants (0 = aucune)
@@ -300,7 +301,10 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       .on('pointerout', () => {
         tip.style('display', 'none');
         clearHighlight();
-      });
+      })
+      .on('contextmenu', (event, d) => {
+        if (onContextPerson) onContextPerson(d.person, event);
+      });      
   }
 
   /* ---------- layout descendant : individu + conjoints empilés ---------- */

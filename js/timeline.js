@@ -63,9 +63,10 @@ function familySet(index, person) {
  * @param {number} [options.upGen=3] - générations d'ascendants initiales
  * @param {number} [options.downGen=3] - générations de descendants initiales
  * @param {Function} [options.onSelectPerson] - callback clic sur une boîte
+ * @param {Function} [options.onContextPerson] - callback clic droit sur un individu
  * @returns {{update: Function, setGenerations: Function, reset: Function}}
  */
-export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelectPerson }) {
+export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelectPerson, onContextPerson }) {
   container.innerHTML = '';
   let currentRootId = null;
 
@@ -499,7 +500,10 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         highlightFamily(b.person);
       })
       .on('pointermove', positionTip)
-      .on('pointerout', () => { tip.style('display', 'none'); clearHighlight(); });
+      .on('pointerout', () => { tip.style('display', 'none'); clearHighlight(); })
+      .on('contextmenu', (event, b) => {
+          if (onContextPerson) onContextPerson(b.person, event);
+      });
 
     svg.call(zoomBeh.transform, d3.zoomIdentity);
     log.info(`Frise chronologique : ${boxes.length} boîte(s) ` +
