@@ -123,12 +123,20 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     return rows.join('');
   }
 
-  /** Estompe la frise hors famille de l'individu survolé. */
+  /** Survol : famille en évidence + code couleur relatif à l'individu
+   *  survolé (g0 = sa génération, g-1 = parents, g1 = enfants). */
   function highlightFamily(person) {
     const fam = familySet(index, person);
+    const hRow = [...rowMap.values()].find((r) => r.id === person.id);
+    const hGen = hRow?.gen;
     gView.selectAll('g.tl-box')
       .classed('dim', (b) => !fam.has(b.id))
       .classed('hl', (b) => fam.has(b.id) && b.id !== person.id);
+    // couleurs de génération relatives au survolé
+    gView.selectAll('g.tl-box').select('rect')
+      .classed('g-1', (b) => hGen != null && b.gen === hGen - 1)
+      .classed('g0',  (b) => hGen != null && b.gen === hGen)
+      .classed('g1',  (b) => hGen != null && b.gen === hGen + 1);
     gView.selectAll('path.tl-link, line.tl-marry')
       .classed('dim', (l) => !(l.ids && l.ids.every((i) => fam.has(i))));
   }
@@ -136,6 +144,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
   /** Rétablit l'opacité normale. */
   function clearHighlight() {
     gView.selectAll('g.tl-box').classed('dim', false).classed('hl', false);
+    gView.selectAll('g.tl-box').select('rect').classed('g-1', false).classed('g0', false).classed('g1', false);
     gView.selectAll('path.tl-link, line.tl-marry').classed('dim', false);
   }
 
@@ -227,6 +236,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
 
   /** Blocs déjà posés, pour la détection de chevauchements. */
   let placed = [];
+  let rowMap = new Map();
   function conflicts(y, h, t1, t2) {
     if (t1 == null || t2 == null) return null;
     for (const b of placed) {
@@ -342,7 +352,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     placeDown(down, 0, 0);
 
     // ---------- collecte des lignes descendantes ----------
-    const rowMap = new Map();     // id -> première ligne
+    rowMap = new Map();     // id -> première ligne
     const allRows = [];
     const collectDown = (n) => {
       for (const r of n.rows) {
@@ -484,7 +494,6 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       .attr('rx', 3)
       .attr('class', (b) => {
         const cls = [b.person.sex === 'M' ? 'm' : b.person.sex === 'F' ? 'f' : null];
-        if (b.gen != null) cls.push('g' + b.gen);
         if (b.id === currentRootId) cls.push('root');
         if (b.est) cls.push('est');
         if (b.alive) cls.push('alive');
