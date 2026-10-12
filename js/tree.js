@@ -228,7 +228,9 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
           ? ` <small>(${esc(d.estimatedFrom)})</small>` : '');
     const rows = [
       `<div class="tip-name">${esc((p.name.surname || '?').toUpperCase())} ${esc(p.name.given)}</div>`,
-      `<div class="tip-dates">naissance ${dHtml(p.birth)} · décès ${dHtml(p.death)}</div>`,
+      `<div class="tip-dates">naissance ${dHtml(p.birth)}`
+        + (p.death.status === 'living' ? ' · vivant·e'
+           : ` · décès ${dHtml(p.death)}`) + '</div>',
     ];
     for (const famId of p.familyAsSpouse) {
       const fam = index.getFamily(famId);

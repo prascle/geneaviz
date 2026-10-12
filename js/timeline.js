@@ -106,7 +106,9 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     };
     const rows = [
       `<div class="tip-name">${esc((p.name.surname || '?').toUpperCase())} ${esc(p.name.given)}</div>`,
-      `<div class="tip-dates">naissance ${dHtml(p.birth)} · décès ${dHtml(p.death)}</div>`,
+      `<div class="tip-dates">naissance ${dHtml(p.birth)}`
+        + (p.death.status === 'living' ? ' · vivant·e'
+           : ` · décès ${dHtml(p.death)}`) + '</div>',
     ];
     for (const famId of p.familyAsSpouse) {
       const fam = index.getFamily(famId);
@@ -503,10 +505,14 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       .attr('x', 3).attr('y', ROW_H / 2 - 1)
       .text((b) => {
         const w = Math.max(X(b.t2) - X(b.t1), MIN_BOX_W);
+        const date = ' ' + b.t1 + (b.alive ? '→' : '–' + +b.t2);
         const maxCh = Math.floor((w - 6) / 5.6);
-        const s = ((b.person.name.given || '') + ' '
+        const name = ((b.person.name.given || '') + ' '
           + (b.person.name.surname || '?').toUpperCase()).trim();
-        return s.length > maxCh ? s.slice(0, maxCh - 1) + '…' : s;
+        // nom tronqué si besoin pour laisser place aux dates
+        const nameCh = Math.max(1, maxCh - date.length);
+        const s = name.length > nameCh ? name.slice(0, nameCh - 1) + '…' : name;
+        return s + date;
       });
 
     sel.on('click', (event, b) => {
