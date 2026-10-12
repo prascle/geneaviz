@@ -87,13 +87,12 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
   const tipHost = document.getElementById('workspace') ?? document.body;   // visible en plein écran
   let tip = d3.select(tipHost).select('div.tree-tip');
   if (tip.empty()) tip = d3.select(tipHost).append('div').attr('class', 'tree-tip');
+  // infobulle ancrée au coin bas-gauche (jamais sur le graphe)
   const positionTip = (event) => {
     const node = tip.node();
-    const w = node.offsetWidth, h = node.offsetHeight;
-    let x = event.clientX + 14, y = event.clientY + 14;
-    if (x + w > window.innerWidth - 8) x = event.clientX - w - 14;
-    if (y + h > window.innerHeight - 8) y = event.clientY - h - 14;
-    tip.style('left', x + 'px').style('top', y + 'px');
+    const h = node.offsetHeight;
+    tip.style('left', '12px')
+       .style('top', Math.max(12, window.innerHeight - h - 12) + 'px');
   };
 
   /** Contenu HTML de l'infobulle (complet : dates, unions, enfants). */

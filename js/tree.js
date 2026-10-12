@@ -188,14 +188,13 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
   let tip = d3.select(tipHost).select('div.tree-tip');
   if (tip.empty()) tip = d3.select(tipHost).append('div').attr('class', 'tree-tip');
 
-  /** Positionne l'infobulle près du curseur, sans sortir de la fenêtre. */
+  /** Positionne l'infobulle : ancrée au coin bas-gauche de la fenêtre
+   *  (jamais au-dessus du graphe, position stable pendant le survol). */
   function positionTip(event) {
     const node = tip.node();
-    const w = node.offsetWidth, h = node.offsetHeight;
-    let x = event.clientX + 14, y = event.clientY + 14;
-    if (x + w > window.innerWidth - 8) x = event.clientX - w - 14;
-    if (y + h > window.innerHeight - 8) y = event.clientY - h - 14;
-    tip.style('left', x + 'px').style('top', y + 'px');
+    const h = node.offsetHeight;
+    tip.style('left', '12px')
+       .style('top', Math.max(12, window.innerHeight - h - 12) + 'px');
   }
 
   /** Ajuste zoom et translation pour voir tout le graphe. */
