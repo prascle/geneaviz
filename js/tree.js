@@ -251,8 +251,8 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
     gView.selectAll('g.tree-node')
       .classed('dim', (n) => !n.ghost && !fam.has(n.id))
       .classed('hl', (n) => !n.ghost && fam.has(n.id) && n.id !== person.id);
-    gView.selectAll('path.tree-link').classed('dim', (l) => !l.ids.some((i) => fam.has(i)));
-    gView.selectAll('line.spouse-link').classed('dim', (l) => !l.ids.some((i) => fam.has(i)));
+    gView.selectAll('path.tree-link').classed('dim', (l) => !l.ids.every((i) => fam.has(i)));
+    gView.selectAll('line.spouse-link').classed('dim', (l) => !l.ids.every((i) => fam.has(i)));
   }
 
   /** Rétablit l'opacité normale. */

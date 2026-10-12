@@ -130,7 +130,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       .classed('dim', (b) => !fam.has(b.id))
       .classed('hl', (b) => fam.has(b.id) && b.id !== person.id);
     gView.selectAll('path.tl-link, line.tl-marry')
-      .classed('dim', (l) => !(l.ids && l.ids.some((i) => fam.has(i))));
+      .classed('dim', (l) => !(l.ids && l.ids.every((i) => fam.has(i))));
   }
 
   /** Rétablit l'opacité normale. */
@@ -181,7 +181,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
   function buildDown(pid, depth, seen) {
     const nowYear = new Date().getFullYear();
     const p = index.getIndividual(pid);
-    const node = { pid, rows: [], unions: [], subs: [],
+    const node = { pid, gen: depth, rows: [], unions: [], subs: [],
                    h: 0, t1: Infinity, t2: -Infinity };
     if (!p) return node;
 
@@ -214,7 +214,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     if (!p) return null;
     const l = lifeYears(p, nowYear);
     if (!l) return null;
-    const row = { id: p.id, person: p, ...l };
+    const row = { id: p.id, person: p, gen: node.gen, ...l };
     if (p.sex === 'M' && node.rows.length) node.rows.unshift(row);
     else node.rows.push(row);
     node.h = node.rows.length * ROW_H + (node.rows.length - 1) * GAP_ROW;
@@ -282,11 +282,12 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       const unit = { childId: pid,
                      marr: fam.marriage.value?.year ?? null,
                      upRow: null, downRow: null };
+      const gen = -(depth + 1);                     
       const mkRow = (id) => {
         if (!id || seen.has(id) || !index.getIndividual(id)) return null;
         seen.add(id);
         const l = lifeYears(index.getIndividual(id), nowYear);
-        return l ? { id, person: index.getIndividual(id), ...l } : null;
+        return l ? { id, person: index.getIndividual(id), gen, ...l } : null;
       };
       unit.upRow = mkRow(fam.husband);     // père : au-dessus de l'enfant
       unit.downRow = mkRow(fam.wife);       // mère : en dessous
@@ -483,6 +484,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       .attr('rx', 3)
       .attr('class', (b) => {
         const cls = [b.person.sex === 'M' ? 'm' : b.person.sex === 'F' ? 'f' : null];
+        if (b.gen != null) cls.push('g' + b.gen);
         if (b.id === currentRootId) cls.push('root');
         if (b.est) cls.push('est');
         if (b.alive) cls.push('alive');
