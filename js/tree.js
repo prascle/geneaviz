@@ -163,10 +163,11 @@ function familySet(index, person) {
  * @param {number} [options.upGen=3] - générations d'ascendants initiales
  * @param {number} [options.downGen=3] - générations de descendants initiales
  * @param {Function} [options.onSelectNode] - callback clic sur un individu
+ * @param {Function} [options.onContextPerson] - callback clic droit sur un individu
  * @returns {{update: Function, getRootId: Function,
  *            setGenerations: Function, reset: Function}} API de la vue
  */
-export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNode }) {
+export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNode, onContextPerson }) {
   container.innerHTML = '';
   upGen = upGen;      // générations d'ascendants (0 = aucune) — réglage partagé
   downGen = downGen;  // générations de descendants (0 = aucune)
@@ -183,17 +184,17 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
   svg.call(zoomBeh);
 
   // infobulle de survol (partagée avec la vue chronologique)
-  let tip = d3.select('body').select('div.tree-tip');
-  if (tip.empty()) tip = d3.select('body').append('div').attr('class', 'tree-tip');
+  const tipHost = document.getElementById('workspace') ?? document.body;   // visible en plein écran
+  let tip = d3.select(tipHost).select('div.tree-tip');
+  if (tip.empty()) tip = d3.select(tipHost).append('div').attr('class', 'tree-tip');
 
-  /** Positionne l'infobulle près du curseur, sans sortir de la fenêtre. */
+  /** Positionne l'infobulle : ancrée au coin bas-gauche de la fenêtre
+   *  (jamais au-dessus du graphe, position stable pendant le survol). */
   function positionTip(event) {
     const node = tip.node();
-    const w = node.offsetWidth, h = node.offsetHeight;
-    let x = event.clientX + 14, y = event.clientY + 14;
-    if (x + w > window.innerWidth - 8) x = event.clientX - w - 14;
-    if (y + h > window.innerHeight - 8) y = event.clientY - h - 14;
-    tip.style('left', x + 'px').style('top', y + 'px');
+    const h = node.offsetHeight;
+    tip.style('left', '12px')
+       .style('top', Math.max(12, window.innerHeight - h - 12) + 'px');
   }
 
   /** Ajuste zoom et translation pour voir tout le graphe. */
@@ -227,7 +228,9 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
           ? ` <small>(${esc(d.estimatedFrom)})</small>` : '');
     const rows = [
       `<div class="tip-name">${esc((p.name.surname || '?').toUpperCase())} ${esc(p.name.given)}</div>`,
-      `<div class="tip-dates">naissance ${dHtml(p.birth)} · décès ${dHtml(p.death)}</div>`,
+      `<div class="tip-dates">naissance ${dHtml(p.birth)}`
+        + (p.death.status === 'living' ? ' · vivant·e'
+           : ` · décès ${dHtml(p.death)}`) + '</div>',
     ];
     for (const famId of p.familyAsSpouse) {
       const fam = index.getFamily(famId);
@@ -249,8 +252,8 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
     gView.selectAll('g.tree-node')
       .classed('dim', (n) => !n.ghost && !fam.has(n.id))
       .classed('hl', (n) => !n.ghost && fam.has(n.id) && n.id !== person.id);
-    gView.selectAll('path.tree-link').classed('dim', (l) => !l.ids.some((i) => fam.has(i)));
-    gView.selectAll('line.spouse-link').classed('dim', (l) => !l.ids.some((i) => fam.has(i)));
+    gView.selectAll('path.tree-link').classed('dim', (l) => !l.ids.every((i) => fam.has(i)));
+    gView.selectAll('line.spouse-link').classed('dim', (l) => !l.ids.every((i) => fam.has(i)));
   }
 
   /** Rétablit l'opacité normale. */
@@ -300,7 +303,10 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       .on('pointerout', () => {
         tip.style('display', 'none');
         clearHighlight();
-      });
+      })
+      .on('contextmenu', (event, d) => {
+        if (onContextPerson) onContextPerson(d.person, event);
+      });      
   }
 
   /* ---------- layout descendant : individu + conjoints empilés ---------- */

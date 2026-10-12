@@ -63,9 +63,10 @@ function familySet(index, person) {
  * @param {number} [options.upGen=3] - générations d'ascendants initiales
  * @param {number} [options.downGen=3] - générations de descendants initiales
  * @param {Function} [options.onSelectPerson] - callback clic sur une boîte
+ * @param {Function} [options.onContextPerson] - callback clic droit sur un individu
  * @returns {{update: Function, setGenerations: Function, reset: Function}}
  */
-export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelectPerson }) {
+export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelectPerson, onContextPerson }) {
   container.innerHTML = '';
   let currentRootId = null;
 
@@ -77,16 +78,21 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     .on('zoom', (event) => gZoom.attr('transform', event.transform));
   svg.call(zoomBeh);
 
+  // recalcul de la hauteur en entrée/sortie du plein écran
+  document.addEventListener('fullscreenchange', () => {
+    if (currentRootId) update(currentRootId);
+  });
+  
   // infobulle partagée avec la vue arbre
-  let tip = d3.select('body').select('div.tree-tip');
-  if (tip.empty()) tip = d3.select('body').append('div').attr('class', 'tree-tip');
+  const tipHost = document.getElementById('workspace') ?? document.body;   // visible en plein écran
+  let tip = d3.select(tipHost).select('div.tree-tip');
+  if (tip.empty()) tip = d3.select(tipHost).append('div').attr('class', 'tree-tip');
+  // infobulle ancrée au coin bas-gauche (jamais sur le graphe)
   const positionTip = (event) => {
     const node = tip.node();
-    const w = node.offsetWidth, h = node.offsetHeight;
-    let x = event.clientX + 14, y = event.clientY + 14;
-    if (x + w > window.innerWidth - 8) x = event.clientX - w - 14;
-    if (y + h > window.innerHeight - 8) y = event.clientY - h - 14;
-    tip.style('left', x + 'px').style('top', y + 'px');
+    const h = node.offsetHeight;
+    tip.style('left', '12px')
+       .style('top', Math.max(12, window.innerHeight - h - 12) + 'px');
   };
 
   /** Contenu HTML de l'infobulle (complet : dates, unions, enfants). */
@@ -100,7 +106,9 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     };
     const rows = [
       `<div class="tip-name">${esc((p.name.surname || '?').toUpperCase())} ${esc(p.name.given)}</div>`,
-      `<div class="tip-dates">naissance ${dHtml(p.birth)} · décès ${dHtml(p.death)}</div>`,
+      `<div class="tip-dates">naissance ${dHtml(p.birth)}`
+        + (p.death.status === 'living' ? ' · vivant·e'
+           : ` · décès ${dHtml(p.death)}`) + '</div>',
     ];
     for (const famId of p.familyAsSpouse) {
       const fam = index.getFamily(famId);
@@ -116,19 +124,28 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     return rows.join('');
   }
 
-  /** Estompe la frise hors famille de l'individu survolé. */
+  /** Survol : famille en évidence + code couleur relatif à l'individu
+   *  survolé (g0 = sa génération, g-1 = parents, g1 = enfants). */
   function highlightFamily(person) {
     const fam = familySet(index, person);
+    const hRow = [...rowMap.values()].find((r) => r.id === person.id);
+    const hGen = hRow?.gen;
     gView.selectAll('g.tl-box')
       .classed('dim', (b) => !fam.has(b.id))
       .classed('hl', (b) => fam.has(b.id) && b.id !== person.id);
+    // couleurs de génération relatives au survolé
+    gView.selectAll('g.tl-box').select('rect')
+      .classed('g-1', (b) => hGen != null && b.gen === hGen - 1)
+      .classed('g0',  (b) => hGen != null && b.gen === hGen)
+      .classed('g1',  (b) => hGen != null && b.gen === hGen + 1);
     gView.selectAll('path.tl-link, line.tl-marry')
-      .classed('dim', (l) => !(l.ids && l.ids.some((i) => fam.has(i))));
+      .classed('dim', (l) => !(l.ids && l.ids.every((i) => fam.has(i))));
   }
 
   /** Rétablit l'opacité normale. */
   function clearHighlight() {
     gView.selectAll('g.tl-box').classed('dim', false).classed('hl', false);
+    gView.selectAll('g.tl-box').select('rect').classed('g-1', false).classed('g0', false).classed('g1', false);
     gView.selectAll('path.tl-link, line.tl-marry').classed('dim', false);
   }
 
@@ -174,7 +191,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
   function buildDown(pid, depth, seen) {
     const nowYear = new Date().getFullYear();
     const p = index.getIndividual(pid);
-    const node = { pid, rows: [], unions: [], subs: [],
+    const node = { pid, gen: depth, rows: [], unions: [], subs: [],
                    h: 0, t1: Infinity, t2: -Infinity };
     if (!p) return node;
 
@@ -207,7 +224,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     if (!p) return null;
     const l = lifeYears(p, nowYear);
     if (!l) return null;
-    const row = { id: p.id, person: p, ...l };
+    const row = { id: p.id, person: p, gen: node.gen, ...l };
     if (p.sex === 'M' && node.rows.length) node.rows.unshift(row);
     else node.rows.push(row);
     node.h = node.rows.length * ROW_H + (node.rows.length - 1) * GAP_ROW;
@@ -220,6 +237,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
 
   /** Blocs déjà posés, pour la détection de chevauchements. */
   let placed = [];
+  let rowMap = new Map();
   function conflicts(y, h, t1, t2) {
     if (t1 == null || t2 == null) return null;
     for (const b of placed) {
@@ -275,11 +293,12 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       const unit = { childId: pid,
                      marr: fam.marriage.value?.year ?? null,
                      upRow: null, downRow: null };
+      const gen = -(depth + 1);                     
       const mkRow = (id) => {
         if (!id || seen.has(id) || !index.getIndividual(id)) return null;
         seen.add(id);
         const l = lifeYears(index.getIndividual(id), nowYear);
-        return l ? { id, person: index.getIndividual(id), ...l } : null;
+        return l ? { id, person: index.getIndividual(id), gen, ...l } : null;
       };
       unit.upRow = mkRow(fam.husband);     // père : au-dessus de l'enfant
       unit.downRow = mkRow(fam.wife);       // mère : en dessous
@@ -334,7 +353,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     placeDown(down, 0, 0);
 
     // ---------- collecte des lignes descendantes ----------
-    const rowMap = new Map();     // id -> première ligne
+    rowMap = new Map();     // id -> première ligne
     const allRows = [];
     const collectDown = (n) => {
       for (const r of n.rows) {
@@ -374,7 +393,10 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     svg.attr('height', Math.max(totalH, 80))
        .attr('viewBox', `0 0 ${totalW} ${Math.max(totalH, 80)}`)
        .attr('preserveAspectRatio', 'xMinYMin meet');
-    container.style.height = Math.min(totalH, 720) + 'px';
+    // hauteur du conteneur : plafonnée en fenêtre normale, remplie en plein écran
+    const inFs = document.fullscreenElement != null;
+    const capH = inFs ? Math.max(window.innerHeight - 150, 320) : 720;
+    container.style.height = Math.max(Math.min(totalH, capH), 80) + 'px';
 
     // ---------- axe des années ----------
     const span = maxT - minT;
@@ -483,10 +505,14 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       .attr('x', 3).attr('y', ROW_H / 2 - 1)
       .text((b) => {
         const w = Math.max(X(b.t2) - X(b.t1), MIN_BOX_W);
+        const date = ' ' + b.t1 + (b.alive ? '→' : '–' + +b.t2);
         const maxCh = Math.floor((w - 6) / 5.6);
-        const s = ((b.person.name.given || '') + ' '
+        const name = ((b.person.name.given || '') + ' '
           + (b.person.name.surname || '?').toUpperCase()).trim();
-        return s.length > maxCh ? s.slice(0, maxCh - 1) + '…' : s;
+        // nom tronqué si besoin pour laisser place aux dates
+        const nameCh = Math.max(1, maxCh - date.length);
+        const s = name.length > nameCh ? name.slice(0, nameCh - 1) + '…' : name;
+        return s + date;
       });
 
     sel.on('click', (event, b) => {
@@ -499,7 +525,10 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         highlightFamily(b.person);
       })
       .on('pointermove', positionTip)
-      .on('pointerout', () => { tip.style('display', 'none'); clearHighlight(); });
+      .on('pointerout', () => { tip.style('display', 'none'); clearHighlight(); })
+      .on('contextmenu', (event, b) => {
+          if (onContextPerson) onContextPerson(b.person, event);
+      });
 
     svg.call(zoomBeh.transform, d3.zoomIdentity);
     log.info(`Frise chronologique : ${boxes.length} boîte(s) ` +
