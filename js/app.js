@@ -1,8 +1,10 @@
 /**
- * app.js — Point d'entrée. Jalon M5 :
+ * app.js — Point d'entrée. Jalons M5/M5.1/M6 :
  * charger un fichier, indexer, estimer les dates, rechercher un individu,
  * afficher son détail et naviguer entre les vues : arbre combiné (D3) et
- * vue chronologique. Barre de vues partagée : générations, recentrage.
+ * vue chronologique. Barre de vues partagée : générations, recentrage,
+ * plein écran. Menu contextuel (clic droit) : détail, racine, et éditions
+ * d'affichage M6 (branches extensibles, registre partagé par les vues).
  */
 import { logger } from './logger.js';
 import { readGedcomFile, parseGedcom } from './gedcomLoader.js';
@@ -13,6 +15,7 @@ import { initTree } from './tree.js';
 import { initTimeline } from './timeline.js';
 import { formatDate } from './utils.js';
 import { initContextMenu } from './contextmenu.js';
+import { createEdits, siblingIds, baseScope } from './edits.js';
 
 const log = logger('app');
 let treeApi = null;         // vue arbre combiné
@@ -57,17 +60,56 @@ async function handleFile(file) {
       `${index.peopleCount} individus, ${index.familyCount} familles, ` +
       `${index.surnameCount} patronymes.`);
 
+    // ---------- Éditions d'affichage (M6 : branches extensibles) ----------
+    const edits = createEdits();
+    let currentRootId = null;
+
+    /** Sélectionne la racine courante et resynchronise les deux vues.
+     *  Un changement de racine retire toutes les éditions. */
+    function setRoot(id) {
+      edits.clear();
+      currentRootId = id;
+      window.genea.state = { rootId: id };
+      treeApi.update(id);
+      timelineApi.update(id);
+    }
+
+    /** Rafraîchit les deux vues après une édition (racine inchangée). */
+    function refreshViews() {
+      if (currentRootId) {
+        treeApi.update(currentRootId);
+        timelineApi.update(currentRootId);
+      }
+    }
+
     // ---------- Menu contextuel (partagé par les deux vues) ----------
     const ctxMenu = initContextMenu();
     const onContextPerson = (person, event) => {
-      ctxMenu.show(event, [
+      const items = [
         { label: 'Voir le détail', action: () => showDetails(index, person.id) },
-        { label: 'Définir comme racine', action: () => { showDetails(index, person.id); setRoot(person.id); } },
-        { separator: true },
-        { label: 'Ajouter les ascendants', hint: '(M6)', disabled: true },
-        { label: 'Ajouter les descendants', hint: '(M6)', disabled: true },
-        { label: 'Retirer cette branche', hint: '(M6)', disabled: true },
-      ]);
+        { label: 'Définir comme racine',
+          action: () => { showDetails(index, person.id); setRoot(person.id); } },
+      ];
+      // actions M6 : fratrie (ajout si apport réel, retrait si éditée)
+      const sibs = siblingIds(index, person.id);
+      const gens = () => ({
+        u: Number(document.getElementById('gen-up').value),
+        d: Number(document.getElementById('gen-down').value),
+      });
+      const { u, d } = currentRootId ? gens() : { u: 3, d: 3 };
+      const shown = baseScope(index, currentRootId, u, d);
+      const newSibs = sibs.filter((s) => !shown.has(s));
+      if (newSibs.length) {
+        items.push({ separator: true },
+          { label: `Ajouter la fratrie (${sibs.length})`,
+            action: () => { edits.add(person.id, 'siblings'); refreshViews(); } });
+      }
+      if (edits.get(person.id, 'siblings')) {
+        items.push({ separator: true },
+          { label: 'Retirer : fratrie',
+            action: () => { edits.remove(person.id, 'siblings'); refreshViews(); } });
+      }
+      ctxMenu.show(event, items);
     };
 
     // ---------- Vues (arbre + chronologique) : réglages partagés ----------
@@ -76,22 +118,17 @@ async function handleFile(file) {
       index,
       onSelectNode: (id) => showDetails(index, id),
       onContextPerson,
+      getEdits: () => edits.all(),
     });
     timelineApi = initTimeline({
       container: document.getElementById('timeline-container'),
       index,
       onSelectPerson: (id) => { showDetails(index, id); setRoot(id); },
       onContextPerson,
+      getEdits: () => edits.all(),
     });
     window.genea.tree = treeApi;
     window.genea.timeline = timelineApi;
-
-    /** Sélectionne la racine courante et resynchronise les deux vues. */
-    function setRoot(id) {
-      window.genea.state = { rootId: id };
-      treeApi.update(id);
-      timelineApi.update(id);
-    }
 
     // ---------- Barre de recherche (M1) ----------
     const container = document.getElementById('search-container');
@@ -135,6 +172,7 @@ async function handleFile(file) {
     genUpSel.value = '3'; genDownSel.value = '3';   // défaut partagé
 
     const applyGens = () => {
+      edits.clear();   // un changement de génération invalide les éditions
       const u = Number(genUpSel.value), d = Number(genDownSel.value);
       treeApi.setGenerations(u, d);
       timelineApi.setGenerations(u, d);
@@ -224,4 +262,4 @@ document.getElementById('file').addEventListener('change', (e) => {
   if (file) handleFile(file);
 });
 
-log.info('GeneaViz M5 prêt — sélectionner un fichier .ged');
+log.info('GeneaViz M6 prêt — sélectionner un fichier .ged');

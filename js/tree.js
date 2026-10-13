@@ -10,6 +10,9 @@
  *    empilés en dessous (remariages → pile, conjoint inconnu → fantôme),
  *    reliés par un trait vertical ; les filiations partent du milieu du
  *    segment individu–conjoint.
+ *  - Branches ajoutées (M6a) : la fratrie d'un individu (via le registre
+ *    d'éditions) est empilée sous sa carte, conjoints inclus, avec
+ *    filiation depuis l'union de ses parents si elle est affichée.
  *  - Fonds selon le sexe (bleu clair homme, rose clair femme, blanc inconnu).
  *    Dates estimées : préfixe « ≈ », cadre en tirets.
  *  - Infobulle au survol (détail complet) + surbrillance de la famille
@@ -18,6 +21,7 @@
  */
 import * as d3 from 'd3';
 import { logger } from './logger.js';
+import { siblingIds } from './edits.js';
 
 const log = logger('tree');
 
@@ -163,14 +167,13 @@ function familySet(index, person) {
  * @param {number} [options.upGen=3] - générations d'ascendants initiales
  * @param {number} [options.downGen=3] - générations de descendants initiales
  * @param {Function} [options.onSelectNode] - callback clic sur un individu
- * @param {Function} [options.onContextPerson] - callback clic droit sur un individu
+ * @param {Function} [options.onContextPerson] - callback clic droit
+ * @param {Function} [options.getEdits] - accès au registre d'éditions (M6)
  * @returns {{update: Function, getRootId: Function,
  *            setGenerations: Function, reset: Function}} API de la vue
  */
-export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNode, onContextPerson }) {
+export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNode, onContextPerson, getEdits }) {
   container.innerHTML = '';
-  upGen = upGen;      // générations d'ascendants (0 = aucune) — réglage partagé
-  downGen = downGen;  // générations de descendants (0 = aucune)
   let currentRootId = null;
 
   const svg = d3.select(container).append('svg')
@@ -277,6 +280,13 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         return cls.join(' ') || null;
       });
 
+    // cartes issues d'une édition : fond hachuré par-dessus (M6)
+    sel.filter((d) => d.edited).append('rect')
+      .attr('class', 'hatch')
+      .attr('width', NODE_W - 2).attr('height', NODE_H - 2)
+      .attr('x', 1).attr('y', 1).attr('rx', 5)
+      .style('pointer-events', 'none');
+
     sel.append('text')
       .attr('class', 'node-name')
       .attr('x', 10).attr('y', 18)
@@ -306,7 +316,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       })
       .on('contextmenu', (event, d) => {
         if (onContextPerson) onContextPerson(d.person, event);
-      });      
+      });
   }
 
   /* ---------- layout descendant : individu + conjoints empilés ---------- */
@@ -395,7 +405,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       out.unions.push({ x1: xLeft + NODE_W, y1: rowY(0),
                         x2: xLeft + NODE_W, y2: rowY(nRows - 1),
                         ids: [unit.person.id,
-                              ...unit.unions.filter((u) => u.spouseId)
+                  ...unit.unions.filter((u) => u.spouseId)
                                             .map((u) => u.spouseId)] });
     }
 
@@ -419,7 +429,8 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
   /**
    * Dessine le côté ascendant : fan-out d3.tree, crochets de couple entre
    * co-parents d'un même enfant, fantôme si parent inconnu, filiation
-   * partant du milieu du crochet.
+   * partant du milieu du crochet. L'origine de chaque filiation est
+   * mémorisée (out.filiationOrigin) pour les branches ajoutées (M6).
    */
   function placeUp(rootId, out) {
     const data = buildAncestorTree(index, rootId, upGen);
@@ -504,10 +515,13 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         out.filiation.push({ d: filiationPath(xU, (ay + by) / 2, childLeftX, childY),
                              ids: [u.a.data.id, u.b ? u.b.data.id : null, childNode.data.id]
                                .filter(Boolean) });
+        out.filiationOrigin.set(childNode.data.id, { x: xU, y: (ay + by) / 2 });
       } else {
         out.filiation.push({ d: filiationPath(cardX(n) + NODE_W / 2, n.x - shift,
                                              childLeftX, childY),
                              ids: [n.data.id, childNode.data.id] });
+        out.filiationOrigin.set(childNode.data.id,
+                                { x: cardX(n) + NODE_W / 2, y: n.x - shift });
       }
     }
   }
@@ -519,6 +533,16 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
     tip.style('display', 'none');
     gView.selectAll('*').remove();
 
+    // motif de hachures pour les cartes issues d'une édition (M6)
+    gView.append('defs').append('pattern')
+      .attr('id', 'hatchEdit')
+      .attr('width', 6).attr('height', 6)
+      .attr('patternUnits', 'userSpaceOnUse')
+      .attr('patternTransform', 'rotate(45)')
+      .append('line')
+      .attr('x1', 0).attr('y1', 0).attr('x2', 0).attr('y2', 6)
+      .attr('stroke', '#94a3b8').attr('stroke-width', 1.5);
+
     const rootPerson = index.getIndividual(rootId);
     if (!rootPerson) {
       gView.append('text').attr('x', 8).attr('y', 16)
@@ -526,7 +550,8 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       return;
     }
 
-    const out = { cards: new Map(), unions: [], filiation: [] };
+    const out = { cards: new Map(), unions: [], filiation: [],
+                  filiationOrigin: new Map() };
 
     let rootDrawn = false;
     if (downGen > 0) {
@@ -541,6 +566,136 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       });
     }
     if (upGen > 0) placeUp(rootId, out);
+
+    // ---------- branches ajoutées : fratrie (M6a) ----------
+    // L'ajout d'une fratrie inclut les parents du pivot s'ils ne sont pas
+    // déjà affichés ; ils sont placés dans la colonne de GAUCHE (côté
+    // ascendants), la fratrie sous la pile contiguë du pivot, chaque carte
+    // repoussée par un mini-solveur sous les cartes déjà présentes de sa
+    // colonne (pas de chevauchement avec les cousins existants).
+    for (const e of (getEdits ? getEdits() : [])) {
+      if (e.type !== 'siblings') continue;
+      const pivotCard = [...out.cards.values()].find((c) => c.id === e.pivot);
+      if (!pivotCard) continue;
+      const shown = new Set([...out.cards.values()].map((c) => c.id));
+      const sibs = siblingIds(index, e.pivot).filter((k) => !shown.has(k));
+      if (!sibs.length) continue;
+
+      const parentCx = pivotCard.cx - (NODE_W + GAP_X);  // colonne de gauche
+
+      /** Mini-solveur : cy d'une nouvelle carte dans la colonne cx,
+       *  en partant du haut topY et en repoussant sous chaque carte
+       *  existante qui la chevaucherait (marge GAP_Y). */
+      const nextCy = (cx, topY) => {
+        let top = topY;
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const c of out.cards.values()) {
+            if (Math.abs(c.cx - cx) >= 1) continue;
+            if (top < c.cy + NODE_H / 2 + GAP_Y
+                && c.cy - NODE_H / 2 < top + NODE_H + GAP_Y) {
+              top = c.cy + NODE_H / 2 + GAP_Y;
+              changed = true;
+            }
+          }
+        }
+        return top + NODE_H / 2;
+      };
+
+      // bas de la pile contiguë du pivot (carte + conjoints empilés)
+      const col = [...out.cards.values()]
+        .filter((c) => c.cx === pivotCard.cx && c.cy >= pivotCard.cy)
+        .sort((a, b) => a.cy - b.cy);
+      let bottom = pivotCard.cy + NODE_H / 2;
+      for (const c of col) {
+        if (c.cy - NODE_H / 2 <= bottom + GAP_Y + 1) bottom = Math.max(bottom, c.cy + NODE_H / 2);
+        else break;
+      }
+
+      // parents du pivot : crochet existant s'ils sont déjà affichés,
+      // sinon ajoutés dans la colonne de gauche, alignés sur le pivot
+      let origin = out.filiationOrigin.get(e.pivot) ?? null;
+      let originNew = false;
+      if (!origin) {
+        const piv = index.getIndividual(e.pivot);
+        for (const fid of piv.childInFamilies) {
+          const fam = index.getFamily(fid);
+          if (!fam) continue;
+          const parRows = [];
+          let top = pivotCard.cy - NODE_H / 2;   // départ : hauteur du pivot
+          for (const id of [fam.husband, fam.wife]) {
+            if (!id || shown.has(id) || !index.getIndividual(id)) continue;
+            const cy = nextCy(parentCx, top);
+            top = cy + NODE_H / 2 + GAP_Y;
+            shown.add(id);
+            out.cards.set(id + '@sib', {
+              id, person: index.getIndividual(id), ghost: false,
+              isRoot: false, cx: parentCx, cy, edited: true,
+            });
+            parRows.push({ id, cy });
+          }
+          if (!parRows.length) continue;
+          if (parRows.length === 2) {
+            out.unions.push({ x1: parentCx + NODE_W / 2, y1: parRows[0].cy,
+                              x2: parentCx + NODE_W / 2, y2: parRows[1].cy,
+                              ids: parRows.map((r) => r.id) });
+          }
+          origin = { x: parentCx + NODE_W / 2 + GAP_X / 2,
+                     y: parRows.reduce((s, r) => s + r.cy, 0) / parRows.length };
+          originNew = true;
+          break;
+        }
+        // parents introuvables : fratrie ajoutée sans bus de filiation
+      }
+
+      // fratrie : cartes sous le pivot (mini-solveur anti-chevauchement),
+      // conjoints empilés dessous, bus vertical depuis l'union des parents
+      let cursorY = bottom + GAP_Y;
+      for (const k of sibs) {
+        const kp = index.getIndividual(k);
+        const kcy = nextCy(pivotCard.cx, cursorY);
+        cursorY = kcy + NODE_H / 2 + GAP_Y;
+        out.cards.set(k + '@sib', {
+          id: k, person: kp, ghost: false, isRoot: false,
+          cx: pivotCard.cx, cy: kcy, edited: true,
+        });
+        if (origin) {
+          out.filiation.push({
+            d: `M ${origin.x} ${origin.y} L ${origin.x} ${kcy}` +
+               ` L ${pivotCard.cx - NODE_W / 2} ${kcy}`,
+            ids: [k],
+          });
+        }
+        let sy = cursorY;
+        for (const sfid of kp.familyAsSpouse) {
+          const sf = index.getFamily(sfid);
+          if (!sf) continue;
+          const sid = sf.husband === k ? sf.wife : sf.husband;
+          if (!sid || !index.getIndividual(sid) || shown.has(sid)) continue;
+          const scy = nextCy(pivotCard.cx, sy);
+          sy = scy + NODE_H / 2 + GAP_Y;
+          shown.add(sid);
+          out.cards.set(sid + '@sib', {
+            id: sid, person: index.getIndividual(sid), ghost: false,
+            isRoot: false, cx: pivotCard.cx, cy: scy, edited: true,
+          });
+          out.unions.push({ x1: pivotCard.cx + NODE_W / 2, y1: kcy,
+                            x2: pivotCard.cx + NODE_W / 2, y2: scy,
+                            ids: [k, sid] });
+        }
+        cursorY = sy + GAP_Y;
+      }
+
+      // parents nouvellement ajoutés : bus vers le pivot aussi
+      if (origin && originNew) {
+        out.filiation.push({
+          d: `M ${origin.x} ${origin.y} L ${origin.x} ${pivotCard.cy}` +
+             ` L ${pivotCard.cx - NODE_W / 2} ${pivotCard.cy}`,
+          ids: [e.pivot],
+        });
+      }
+    }
 
     gView.selectAll(null)
       .data(out.filiation)
