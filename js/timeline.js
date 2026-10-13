@@ -400,7 +400,35 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       const pivRow = rowMap.get(e.pivot);
       const pivPerson = index.getIndividual(e.pivot);
       if (!pivRow || !pivPerson) continue;
-      const parentsUnit = findAncUnit(ancUnits, e.pivot);
+      // parents du pivot : unité existante (déjà liée) ou ajoutée ici
+      let parentsUnit = findAncUnit(ancUnits, e.pivot);
+      if (!parentsUnit) {
+        for (const fid of pivPerson.childInFamilies) {
+          const fam = index.getFamily(fid);
+          if (!fam) continue;
+          const mkRow = (id) => {
+            if (!id || rowMap.has(id) || !index.getIndividual(id)) return null;
+            const l = lifeYears(index.getIndividual(id), nowYear);
+            return l ? { id, person: index.getIndividual(id),
+                         gen: pivRow.gen - 1, ...l } : null;
+          };
+          const u = { childId: e.pivot,
+                      marr: fam.marriage.value?.year ?? null,
+                      upRow: mkRow(fam.husband), downRow: mkRow(fam.wife) };
+          if (!u.upRow && !u.downRow) continue;
+          if (u.upRow) u.upRow.branch = [];
+          if (u.downRow) u.downRow.branch = [];
+          // convention symétrique : père au-dessus de la ligne du pivot,
+          // mère en dessous (solveur anti-chevauchement)
+          placeAncestors([u], pivRow);
+          for (const r of [u.upRow, u.downRow]) {
+            if (r && !rowMap.has(r.id)) { rowMap.set(r.id, r); allRows.push(r); }
+          }
+          ancUnits.push(u);   // walkAnc dessinera union + filiation vers le pivot
+          parentsUnit = u;
+          break;
+        }
+      }
       let cursor = pivRow.y + ROW_H + GAP_ROW;
       for (const k of siblingIds(index, e.pivot)) {
         if (rowMap.has(k)) continue;
