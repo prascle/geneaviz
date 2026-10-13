@@ -280,6 +280,13 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         return cls.join(' ') || null;
       });
 
+    // cartes issues d'une édition : fond hachuré par-dessus (M6)
+    sel.filter((d) => d.edited).append('rect')
+      .attr('class', 'hatch')
+      .attr('width', NODE_W - 2).attr('height', NODE_H - 2)
+      .attr('x', 1).attr('y', 1).attr('rx', 5)
+      .style('pointer-events', 'none');
+
     sel.append('text')
       .attr('class', 'node-name')
       .attr('x', 10).attr('y', 18)
@@ -526,6 +533,16 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
     tip.style('display', 'none');
     gView.selectAll('*').remove();
 
+    // motif de hachures pour les cartes issues d'une édition (M6)
+    gView.append('defs').append('pattern')
+      .attr('id', 'hatchEdit')
+      .attr('width', 6).attr('height', 6)
+      .attr('patternUnits', 'userSpaceOnUse')
+      .attr('patternTransform', 'rotate(45)')
+      .append('line')
+      .attr('x1', 0).attr('y1', 0).attr('x2', 0).attr('y2', 6)
+      .attr('stroke', '#94a3b8').attr('stroke-width', 1.5);
+
     const rootPerson = index.getIndividual(rootId);
     if (!rootPerson) {
       gView.append('text').attr('x', 8).attr('y', 16)
@@ -614,7 +631,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             shown.add(id);
             out.cards.set(id + '@sib', {
               id, person: index.getIndividual(id), ghost: false,
-              isRoot: false, cx: parentCx, cy,
+              isRoot: false, cx: parentCx, cy, edited: true,
             });
             parRows.push({ id, cy });
           }
@@ -641,7 +658,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         cursorY = kcy + NODE_H / 2 + GAP_Y;
         out.cards.set(k + '@sib', {
           id: k, person: kp, ghost: false, isRoot: false,
-          cx: pivotCard.cx, cy: kcy,
+          cx: pivotCard.cx, cy: kcy, edited: true,
         });
         if (origin) {
           out.filiation.push({
@@ -661,7 +678,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
           shown.add(sid);
           out.cards.set(sid + '@sib', {
             id: sid, person: index.getIndividual(sid), ghost: false,
-            isRoot: false, cx: pivotCard.cx, cy: scy,
+            isRoot: false, cx: pivotCard.cx, cy: scy, edited: true,
           });
           out.unions.push({ x1: pivotCard.cx + NODE_W / 2, y1: kcy,
                             x2: pivotCard.cx + NODE_W / 2, y2: scy,
@@ -679,7 +696,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         });
       }
     }
-    
+
     gView.selectAll(null)
       .data(out.filiation)
       .join('path')

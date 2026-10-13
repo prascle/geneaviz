@@ -410,7 +410,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
             if (!id || rowMap.has(id) || !index.getIndividual(id)) return null;
             const l = lifeYears(index.getIndividual(id), nowYear);
             return l ? { id, person: index.getIndividual(id),
-                         gen: pivRow.gen - 1, ...l } : null;
+                         gen: pivRow.gen - 1, edited: true, ...l } : null;
           };
           const u = { childId: e.pivot,
                       marr: fam.marriage.value?.year ?? null,
@@ -435,7 +435,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         const kp = index.getIndividual(k);
         const unit = { personId: k, rows: [], smarr: null };
         const kl = lifeYears(kp, nowYear);
-        if (kl) unit.rows.push({ id: k, person: kp, gen: pivRow.gen, ...kl });
+        if (kl) unit.rows.push({ id: k, person: kp, gen: pivRow.gen, edited: true, ...kl });
         for (const sfid of kp.familyAsSpouse) {
           const sf = index.getFamily(sfid);
           if (!sf) continue;
@@ -444,7 +444,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
           const sp = index.getIndividual(sid);
           const sl = lifeYears(sp, nowYear);
           if (!sl) continue;
-          const srow = { id: sid, person: sp, gen: pivRow.gen, ...sl };
+          const srow = { id: sid, person: sp, gen: pivRow.gen, edited: true, ...sl };
           if (sp.sex === 'M') unit.rows.unshift(srow); else unit.rows.push(srow);
           if (unit.smarr == null) unit.smarr = sf.marriage.value?.year ?? null;
         }
@@ -612,6 +612,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         const cls = [b.person.sex === 'M' ? 'm' : b.person.sex === 'F' ? 'f' : null];
         if (b.id === currentRootId) cls.push('root');
         if (b.est) cls.push('est');
+        if (b.edited) cls.push('edit');
         if (b.alive) cls.push('alive');
         return cls.filter(Boolean).join(' ');
       });
