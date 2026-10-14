@@ -441,6 +441,15 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         placeDown(sub, cursor, cursor);
         cursor = (sub.yBot ?? cursor) + BAND_GAP;
       }
+      // collecte des lignes des sous-arbres dans rowMap/allRows (sinon
+      // elles sont placées mais jamais dessinées)
+      const collectSub = (n) => {
+        for (const r of n.rows) {
+          if (!rowMap.has(r.id)) { rowMap.set(r.id, r); allRows.push(r); }
+        }
+        n.subs.forEach(collectSub);
+      };
+      node.subs.forEach(collectSub);
       extraDownNodes.push(node);
     }
 
