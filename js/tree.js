@@ -51,7 +51,7 @@ export function buildAncestorTree(index, rootId, maxGen, seenInit = null) {
   if (seenInit) for (const id of seenInit) seen.add(id);
   const build = (person, gen) => {
     const node = { id: person.id, person, gen, children: [] };
-    if (gen >= maxGen) return node;
+    if (gen > maxGen) return node;   // la racine est gen 1 : maxGen niveaux
     for (const famId of person.childInFamilies) {
       const fam = index.getFamily(famId);
       if (!fam) continue;
@@ -81,7 +81,7 @@ export function buildDescendantTree(index, rootId, maxGen) {
   const seen = new Set([rootId]);
   const build = (person, gen) => {
     const node = { id: person.id, person, gen, children: [] };
-    if (gen >= maxGen) return node;
+    if (gen > maxGen) return node;
     for (const famId of person.familyAsSpouse) {
       const fam = index.getFamily(famId);
       if (!fam) continue;
