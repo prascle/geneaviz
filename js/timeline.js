@@ -193,15 +193,16 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
    * haut), la liste de ses unions, et les sous-arbres de ses enfants,
    * triés par naissance.
    */
-  function buildDown(pid, depth, seen) {
+  function buildDown(pid, depth, seen, maxGen = downGen, genBase = null) {
     const nowYear = new Date().getFullYear();
     const p = index.getIndividual(pid);
     const node = { pid, gen: depth, rows: [], unions: [], subs: [],
                    h: 0, t1: Infinity, t2: -Infinity };
+    if (genBase != null) node.gen = genBase + depth;
     if (!p) return node;
 
     addPersonRow(node, p, nowYear);
-    if (seen.has(pid) || depth >= downGen) return node;
+    if (seen.has(pid) || depth >= maxGen) return node;
     seen.add(pid);
 
     for (const u of unionsOf(p)) {
@@ -216,7 +217,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         .map((k) => ({ k, y: index.getIndividual(k).birth.value?.year ?? 9999 }))
         .sort((a, b) => a.y - b.y).map((x) => x.k);
       for (const k of kids) {
-        const sub = buildDown(k, depth + 1, seen);
+        const sub = buildDown(k, depth + 1, seen, maxGen, genBase);
         sub.parentUnion = { pid, spouseRow, marr: u.marr };
         node.subs.push(sub);
       }
@@ -287,10 +288,10 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
    * @returns {Array<{childId, marr, upRow, downRow}>} upRow/downRow portent
    *   chacun une éventuelle sous-branche `.branch`
    */
-  function buildUpAncestors(pid, depth, seen) {
+  function buildUpAncestors(pid, depth, seen, maxGen = upGen, genBase = null) {
     const p = index.getIndividual(pid);
     const out = [];
-    if (!p || depth >= upGen) return out;
+    if (!p || depth >= maxGen) return out;
     for (const fid of p.childInFamilies) {
       const fam = index.getFamily(fid);
       if (!fam) continue;
@@ -298,7 +299,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       const unit = { childId: pid,
                      marr: fam.marriage.value?.year ?? null,
                      upRow: null, downRow: null };
-      const gen = -(depth + 1);
+      const gen = genBase == null ? -(depth + 1) : genBase - (depth + 1);
       const mkRow = (id) => {
         if (!id || seen.has(id) || !index.getIndividual(id)) return null;
         seen.add(id);
@@ -308,8 +309,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       unit.upRow = mkRow(fam.husband);     // père : au-dessus de l'enfant
       unit.downRow = mkRow(fam.wife);       // mère : en dessous
       if (!unit.upRow && !unit.downRow) continue;
-      if (unit.upRow) unit.upRow.branch = buildUpAncestors(unit.upRow.id, depth + 1, seen);
-      if (unit.downRow) unit.downRow.branch = buildUpAncestors(unit.downRow.id, depth + 1, seen);
+      if (unit.upRow) unit.upRow.branch = buildUpAncestors(unit.upRow.id, depth + 1, seen, maxGen, genBase);
+      if (unit.downRow) unit.downRow.branch = buildUpAncestors(unit.downRow.id, depth + 1, seen, maxGen, genBase);
       out.push(unit);
     }
     return out;
@@ -394,6 +395,55 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       }
       return null;
     };
+
+    // ---------- branches ajoutées : ascendants (M6b) ----------
+    for (const e of (getEdits ? getEdits() : [])) {
+      if (e.type !== 'up') continue;
+      const pivRow = rowMap.get(e.pivot);
+      if (!pivRow) continue;
+      const seen = new Set([...rowMap.keys()]);
+      const units = buildUpAncestors(e.pivot, 0, seen, e.depth, pivRow.gen);
+      placeAncestors(units, pivRow);
+      const collect = (u) => {
+        for (const r of [u.upRow, u.downRow]) {
+          if (r && !rowMap.has(r.id)) { rowMap.set(r.id, r); allRows.push(r); }
+        }
+        if (u.upRow) u.upRow.branch.forEach(collect);
+        if (u.downRow) u.downRow.branch.forEach(collect);
+      };
+      units.forEach(collect);
+      ancUnits.push(...units);   // walkAnc dessinera unions + filiations
+    }
+
+    // ---------- branches ajoutées : descendants (M6b) ----------
+    const extraDownNodes = [];
+    for (const e of (getEdits ? getEdits() : [])) {
+      if (e.type !== 'down') continue;
+      const pivRow = rowMap.get(e.pivot);
+      if (!pivRow) continue;
+      const seen = new Set([...rowMap.keys()]);
+      seen.delete(e.pivot);
+      const node = buildDown(e.pivot, 0, seen, e.depth, pivRow.gen);
+      // nouveaux conjoints du pivot : sous sa ligne (solveur)
+      let y = pivRow.y + ROW_H + GAP_ROW;
+      for (const r of node.rows) {
+        if (rowMap.has(r.id)) continue;
+        let guard = 0, c;
+        while ((c = conflicts(y, ROW_H, r.t1, r.t2)) && guard++ < 500) y = c.yBot + GAP_ROW;
+        r.y = y;
+        placed.push({ yTop: y, yBot: y + ROW_H, t1: r.t1, t2: r.t2, label: r.id });
+        rowMap.set(r.id, r); allRows.push(r);
+        y += ROW_H + GAP_ROW;
+      }
+      // enfants : blocs sous le couple
+      let cursor = y + BAND_GAP;
+      for (const sub of node.subs) {
+        placeDown(sub, cursor, cursor);
+        cursor = (sub.yBot ?? cursor) + BAND_GAP;
+      }
+      extraDownNodes.push(node);
+    }
+
     const sibPlacements = [];
     for (const e of (getEdits ? getEdits() : [])) {
       if (e.type !== 'siblings') continue;
@@ -598,6 +648,27 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       }
     }
 
+    // branches descendants ajoutées : unions + filiations (M6b)
+    for (const node of extraDownNodes) {
+      const mainRow = rowMap.get(node.pid);
+      if (!mainRow) continue;
+      for (const u of node.unions) {
+        const sr = u.spouseRow && rowMap.has(u.spouseRow.id) ? u.spouseRow : null;
+        const marr = u.marr ?? heuristicMarr([mainRow, sr]);
+        drawMarry(mainRow, sr, marr, [mainRow.id, sr?.id].filter(Boolean));
+      }
+      for (const sub of node.subs) {
+        const pu = sub.parentUnion;
+        const sr = pu.spouseRow && rowMap.has(pu.spouseRow.id) ? pu.spouseRow : null;
+        const marr = pu.marr ?? heuristicMarr([mainRow, sr]);
+        if (marr != null) {
+          const yFrom = sr ? (mainRow.y + sr.y) / 2 + ROW_H / 2 : mainRow.y + ROW_H;
+          drawFiliation(X(marr), yFrom, sub.pid,
+            [mainRow.id, sr?.id, sub.pid].filter(Boolean));
+        }
+      }
+    }
+    
     // ---------- boîtes ----------
     const boxes = [...rowMap.values()];
     const sel = gView.selectAll('g.tl-box').data(boxes, (b) => b.id).join('g')

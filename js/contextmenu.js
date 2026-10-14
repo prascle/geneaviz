@@ -3,7 +3,8 @@
  *
  * Affiche un menu HTML personnalisé à la position du curseur ; fermeture au
  * clic ailleurs, à la touche Échap, au redimensionnement ou à la perte de
- * focus. Items désactivables (actions à venir) et séparateurs supportés.
+ * focus. Items désactivables, séparateurs et mini-éditeurs numériques
+ * (M6b : choix du nombre de générations) supportés.
  */
 
 /**
@@ -29,7 +30,9 @@ export function initContextMenu() {
    * Affiche le menu à la position de l'événement.
    * @param {Event} event - événement contextmenu (preventDefault appelé)
    * @param {Array<{label: string, action?: Function, disabled?: boolean,
-   *                hint?: string, separator?: boolean}>} items
+   *                hint?: string, separator?: boolean,
+   *                editor?: {label: string, min: number, max: number,
+   *                          def: number, onValidate: Function}}>} items
    */
   function show(event, items) {
     event.preventDefault();
@@ -39,6 +42,30 @@ export function initContextMenu() {
         const sep = document.createElement('div');
         sep.className = 'ctx-separator';
         menu.appendChild(sep);
+        continue;
+      }
+      if (it.editor) {
+        const ed = it.editor;
+        const row = document.createElement('div');
+        row.className = 'ctx-editor';
+        const lbl = document.createElement('span');
+        lbl.textContent = ed.label;
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = String(ed.min); input.max = String(ed.max);
+        input.value = String(ed.def);
+        const ok = document.createElement('button');
+        ok.type = 'button'; ok.textContent = '✓'; ok.title = 'Valider';
+        row.append(lbl, input, ok);
+        // les clics dans l'éditeur ne ferment pas le menu
+        row.addEventListener('click', (ev) => ev.stopPropagation());
+        ok.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const n = Math.max(ed.min, Math.min(ed.max, Number(input.value) || ed.def));
+          close();
+          ed.onValidate(n);
+        });
+        menu.appendChild(row);
         continue;
       }
       const el = document.createElement('div');
