@@ -39,7 +39,6 @@ const SIDE_PAD = 24;
  * @param {Object} index - index applicatif
  * @param {Object} person - individu normalisé
  * @returns {Set<string>}
-
  */
 function familySet(index, person) {
   const s = new Set([person.id]);
@@ -91,8 +90,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
 
   // infobulle partagée avec la vue arbre
   const tipHost = document.getElementById('workspace') ?? document.body;   // visible en plein écran
-  let tip = d3.se
-lect(tipHost).select('div.tree-tip');
+  let tip = d3.select(tipHost).select('div.tree-tip');
   if (tip.empty()) tip = d3.select(tipHost).append('div').attr('class', 'tree-tip');
   // infobulle ancrée au coin bas-gauche (jamais sur le graphe)
   const positionTip = (event) => {
@@ -134,8 +132,7 @@ lect(tipHost).select('div.tree-tip');
   /** Survol : famille en évidence + code couleur relatif à l'individu
    *  survolé (g0 = sa génération, g-1 = parents, g1 = enfants). */
   function highlightFamily(person) {
-    const f
-am = familySet(index, person);
+    const fam = familySet(index, person);
     const hRow = [...rowMap.values()].find((r) => r.id === person.id);
     const hGen = hRow?.gen;
     gView.selectAll('g.tl-box')
@@ -179,8 +176,7 @@ am = familySet(index, person);
     for (const fid of p.familyAsSpouse) {
       const fam = index.getFamily(fid);
       if (!fam) continue;
-      const spouseId = fam.husband === p.id ? fam.wife : fam.husb
-and;
+      const spouseId = fam.husband === p.id ? fam.wife : fam.husband;
       const kids = fam.children.filter((c) => index.getIndividual(c));
       if (spouseId || kids.length) {
         out.push({ famId: fid, spouseId, kids,
@@ -235,8 +231,7 @@ and;
     const l = lifeYears(p, nowYear);
     if (!l) return null;
     const row = { id: p.id, person: p, gen: node.gen, ...l };
-    if (p.se
-x === 'M' && node.rows.length) node.rows.unshift(row);
+    if (p.sex === 'M' && node.rows.length) node.rows.unshift(row);
     else node.rows.push(row);
     node.h = node.rows.length * ROW_H + (node.rows.length - 1) * GAP_ROW;
     node.t1 = Math.min(node.t1, l.t1);
@@ -293,8 +288,7 @@ x === 'M' && node.rows.length) node.rows.unshift(row);
    * @returns {Array<{childId, marr, upRow, downRow}>} upRow/downRow portent
    *   chacun une éventuelle sous-branche `.branch`
    */
-  func
-tion buildUpAncestors(pid, depth, seen, maxGen = upGen, genBase = null) {
+  function buildUpAncestors(pid, depth, seen, maxGen = upGen, genBase = null) {
     const p = index.getIndividual(pid);
     const out = [];
     if (!p || depth >= maxGen) return out;
@@ -338,8 +332,7 @@ tion buildUpAncestors(pid, depth, seen, maxGen = upGen, genBase = null) {
         placed.push({ yTop: y, yBot: y + ROW_H, t1: u.upRow.t1, t2: u.upRow.t2, label: u.upRow.id });
         placeAncestors(u.upRow.branch, u.upRow);
       }
-      if (u.downR
-ow) {
+      if (u.downRow) {
         let y = childRow.y + ROW_H + GAP_ROW, guard = 0, c;
         while ((c = conflicts(y, ROW_H, u.downRow.t1, u.downRow.t2)) && guard++ < 500) {
           y = c.yBot + GAP_ROW;
@@ -392,8 +385,7 @@ ow) {
 
     // ---------- branches ajoutées : fratrie (M6a) ----------
     /** Cherche l'unité ascendante dont l'enfant est childId (récursif). */
-    const findAncUnit = (units, chi
-ldId) => {
+    const findAncUnit = (units, childId) => {
       for (const u of units) {
         if (u.childId === childId) return u;
         const inUp = u.upRow ? findAncUnit(u.upRow.branch, childId) : null;
@@ -587,8 +579,7 @@ ldId) => {
       .attr('y', minY - 20 + offY).attr('text-anchor', 'middle').text((t) => t);
 
     // ---------- repères de mariage + filiations ----------
-    /** A
-nnée de mariage heuristique : moyenne des naissances + 25 ans. */
+    /** Année de mariage heuristique : moyenne des naissances + 25 ans. */
     const heuristicMarr = (rows) => {
       const b = rows.map((r) => r?.t1).filter((v) => v != null);
       return b.length ? Math.round(b.reduce((s, v) => s + v, 0) / b.length) + 25 : null;
@@ -637,8 +628,7 @@ nnée de mariage heuristique : moyenne des naissances + 25 ans. */
       }
     })(down);
 
-    // asce
-ndants : union du couple + filiation vers l'enfant
+    // ascendants : union du couple + filiation vers l'enfant
     const walkAnc = (u) => {
       const ids = [u.upRow?.id, u.downRow?.id, u.childId].filter(Boolean);
       const marr = u.marr ?? heuristicMarr([u.upRow, u.downRow]);
@@ -685,8 +675,7 @@ ndants : union du couple + filiation vers l'enfant
     }
 
     // branches descendants ajoutées : unions + filiations (M6b)
-    for (const node of extraDownNodes) 
-{
+    for (const node of extraDownNodes) {
       const mainRow = rowMap.get(node.pid);
       if (!mainRow) continue;
       for (const u of node.unions) {
@@ -733,8 +722,7 @@ ndants : union du couple + filiation vers l'enfant
         const maxCh = Math.floor((w - 6) / 5.6);
         const name = ((b.person.name.given || '') + ' '
           + (b.person.name.surname || '?').toUpperCase()).trim();
-     
-   // nom tronqué si besoin pour laisser place aux dates
+        // nom tronqué si besoin pour laisser place aux dates
         const nameCh = Math.max(1, maxCh - date.length);
         const s = name.length > nameCh ? name.slice(0, nameCh - 1) + '…' : name;
         return s + date;
