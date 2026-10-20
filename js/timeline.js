@@ -39,6 +39,7 @@ const SIDE_PAD = 24;
  * @param {Object} index - index applicatif
  * @param {Object} person - individu normalisé
  * @returns {Set<string>}
+
  */
 function familySet(index, person) {
   const s = new Set([person.id]);
@@ -90,7 +91,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
 
   // infobulle partagée avec la vue arbre
   const tipHost = document.getElementById('workspace') ?? document.body;   // visible en plein écran
-  let tip = d3.select(tipHost).select('div.tree-tip');
+  let tip = d3.se
+lect(tipHost).select('div.tree-tip');
   if (tip.empty()) tip = d3.select(tipHost).append('div').attr('class', 'tree-tip');
   // infobulle ancrée au coin bas-gauche (jamais sur le graphe)
   const positionTip = (event) => {
@@ -132,7 +134,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
   /** Survol : famille en évidence + code couleur relatif à l'individu
    *  survolé (g0 = sa génération, g-1 = parents, g1 = enfants). */
   function highlightFamily(person) {
-    const fam = familySet(index, person);
+    const f
+am = familySet(index, person);
     const hRow = [...rowMap.values()].find((r) => r.id === person.id);
     const hGen = hRow?.gen;
     gView.selectAll('g.tl-box')
@@ -176,7 +179,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     for (const fid of p.familyAsSpouse) {
       const fam = index.getFamily(fid);
       if (!fam) continue;
-      const spouseId = fam.husband === p.id ? fam.wife : fam.husband;
+      const spouseId = fam.husband === p.id ? fam.wife : fam.husb
+and;
       const kids = fam.children.filter((c) => index.getIndividual(c));
       if (spouseId || kids.length) {
         out.push({ famId: fid, spouseId, kids,
@@ -231,7 +235,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     const l = lifeYears(p, nowYear);
     if (!l) return null;
     const row = { id: p.id, person: p, gen: node.gen, ...l };
-    if (p.sex === 'M' && node.rows.length) node.rows.unshift(row);
+    if (p.se
+x === 'M' && node.rows.length) node.rows.unshift(row);
     else node.rows.push(row);
     node.h = node.rows.length * ROW_H + (node.rows.length - 1) * GAP_ROW;
     node.t1 = Math.min(node.t1, l.t1);
@@ -288,7 +293,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
    * @returns {Array<{childId, marr, upRow, downRow}>} upRow/downRow portent
    *   chacun une éventuelle sous-branche `.branch`
    */
-  function buildUpAncestors(pid, depth, seen, maxGen = upGen, genBase = null) {
+  func
+tion buildUpAncestors(pid, depth, seen, maxGen = upGen, genBase = null) {
     const p = index.getIndividual(pid);
     const out = [];
     if (!p || depth >= maxGen) return out;
@@ -332,7 +338,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         placed.push({ yTop: y, yBot: y + ROW_H, t1: u.upRow.t1, t2: u.upRow.t2, label: u.upRow.id });
         placeAncestors(u.upRow.branch, u.upRow);
       }
-      if (u.downRow) {
+      if (u.downR
+ow) {
         let y = childRow.y + ROW_H + GAP_ROW, guard = 0, c;
         while ((c = conflicts(y, ROW_H, u.downRow.t1, u.downRow.t2)) && guard++ < 500) {
           y = c.yBot + GAP_ROW;
@@ -385,7 +392,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
 
     // ---------- branches ajoutées : fratrie (M6a) ----------
     /** Cherche l'unité ascendante dont l'enfant est childId (récursif). */
-    const findAncUnit = (units, childId) => {
+    const findAncUnit = (units, chi
+ldId) => {
       for (const u of units) {
         if (u.childId === childId) return u;
         const inUp = u.upRow ? findAncUnit(u.upRow.branch, childId) : null;
@@ -396,134 +404,151 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       return null;
     };
 
-    // ---------- branches ajoutées : ascendants (M6b) ----------
-    for (const e of (getEdits ? getEdits() : [])) {
-      if (e.type !== 'up') continue;
-      const pivRow = rowMap.get(e.pivot);
-      if (!pivRow) continue;
-      const seen = new Set([...rowMap.keys()]);
-      const units = buildUpAncestors(e.pivot, 0, seen, e.depth, pivRow.gen);
-      placeAncestors(units, pivRow);
-      const collect = (u) => {
-        for (const r of [u.upRow, u.downRow]) {
-          if (r && !rowMap.has(r.id)) { rowMap.set(r.id, r); allRows.push(r); }
-        }
-        if (u.upRow) u.upRow.branch.forEach(collect);
-        if (u.downRow) u.downRow.branch.forEach(collect);
-      };
-      units.forEach(collect);
-      ancUnits.push(...units);   // walkAnc dessinera unions + filiations
-    }
-
-    // ---------- branches ajoutées : descendants (M6b) ----------
+    // ---------- branches ajoutées (M6a/M6b) : passes jusqu'à point fixe ----------
+    // Une édition peut porter sur un individu introduit par une autre édition
+    // (récursivité : fratrie d'un conjoint, puis descendants d'un membre de
+    // cette fratrie...). On traite les éditions en passes : chaque édition
+    // devient traitée quand son pivot est affiché, jusqu'à ce qu'une passe
+    // n'aboutisse plus — l'ordre des clics devient indifférent.
+    for (const e of (getEdits ? getEdits() : [])) e._done = false;
     const extraDownNodes = [];
-    for (const e of (getEdits ? getEdits() : [])) {
-      if (e.type !== 'down') continue;
-      const pivRow = rowMap.get(e.pivot);
-      if (!pivRow) continue;
-      const seen = new Set([...rowMap.keys()]);
-      seen.delete(e.pivot);
-      const node = buildDown(e.pivot, 0, seen, e.depth, pivRow.gen);
-      // nouveaux conjoints du pivot : sous sa ligne (solveur)
-      let y = pivRow.y + ROW_H + GAP_ROW;
-      for (const r of node.rows) {
-        if (rowMap.has(r.id)) continue;
-        let guard = 0, c;
-        while ((c = conflicts(y, ROW_H, r.t1, r.t2)) && guard++ < 500) y = c.yBot + GAP_ROW;
-        r.y = y;
-        placed.push({ yTop: y, yBot: y + ROW_H, t1: r.t1, t2: r.t2, label: r.id });
-        rowMap.set(r.id, r); allRows.push(r);
-        y += ROW_H + GAP_ROW;
-      }
-      // enfants : blocs sous le couple
-      let cursor = y + BAND_GAP;
-      for (const sub of node.subs) {
-        placeDown(sub, cursor, cursor);
-        cursor = (sub.yBot ?? cursor) + BAND_GAP;
-      }
-      // collecte des lignes des sous-arbres dans rowMap/allRows (sinon
-      // elles sont placées mais jamais dessinées)
-      const collectSub = (n) => {
-        for (const r of n.rows) {
-          if (!rowMap.has(r.id)) { rowMap.set(r.id, r); allRows.push(r); }
-        }
-        n.subs.forEach(collectSub);
-      };
-      node.subs.forEach(collectSub);
-      extraDownNodes.push(node);
-    }
-
     const sibPlacements = [];
-    for (const e of (getEdits ? getEdits() : [])) {
-      if (e.type !== 'siblings') continue;
-      const pivRow = rowMap.get(e.pivot);
-      const pivPerson = index.getIndividual(e.pivot);
-      if (!pivRow || !pivPerson) continue;
-      // parents du pivot : unité existante (déjà liée) ou ajoutée ici
-      let parentsUnit = findAncUnit(ancUnits, e.pivot);
-      if (!parentsUnit) {
-        for (const fid of pivPerson.childInFamilies) {
-          const fam = index.getFamily(fid);
-          if (!fam) continue;
-          const mkRow = (id) => {
-            if (!id || rowMap.has(id) || !index.getIndividual(id)) return null;
-            const l = lifeYears(index.getIndividual(id), nowYear);
-            return l ? { id, person: index.getIndividual(id),
-                         gen: pivRow.gen - 1, edited: true, ...l } : null;
-          };
-          const u = { childId: e.pivot,
-                      marr: fam.marriage.value?.year ?? null,
-                      upRow: mkRow(fam.husband), downRow: mkRow(fam.wife) };
-          if (!u.upRow && !u.downRow) continue;
-          if (u.upRow) u.upRow.branch = [];
-          if (u.downRow) u.downRow.branch = [];
-          // convention symétrique : père au-dessus de la ligne du pivot,
-          // mère en dessous (solveur anti-chevauchement)
-          placeAncestors([u], pivRow);
+    for (let pass = 0; pass < 10; pass++) {
+      let changed = false;
+
+      // ---------- ascendants (M6b) ----------
+      for (const e of (getEdits ? getEdits() : [])) {
+        if (e.type !== 'up' || e._done) continue;
+        const pivRow = rowMap.get(e.pivot);
+        if (!pivRow) continue;
+        const seen = new Set([...rowMap.keys()]);
+        const units = buildUpAncestors(e.pivot, 0, seen, e.depth, pivRow.gen);
+        placeAncestors(units, pivRow);
+        const collect = (u) => {
           for (const r of [u.upRow, u.downRow]) {
             if (r && !rowMap.has(r.id)) { rowMap.set(r.id, r); allRows.push(r); }
           }
-          ancUnits.push(u);   // walkAnc dessinera union + filiation vers le pivot
-          parentsUnit = u;
-          break;
-        }
+          if (u.upRow) u.upRow.branch.forEach(collect);
+          if (u.downRow) u.downRow.branch.forEach(collect);
+        };
+        units.forEach(collect);
+        ancUnits.push(...units);   // walkAnc dessinera unions + filiations
+        e._done = true; changed = true;
       }
-      let cursor = pivRow.y + ROW_H + GAP_ROW;
-      for (const k of siblingIds(index, e.pivot)) {
-        if (rowMap.has(k)) continue;
-        const kp = index.getIndividual(k);
-        const unit = { personId: k, rows: [], smarr: null };
-        const kl = lifeYears(kp, nowYear);
-        if (kl) unit.rows.push({ id: k, person: kp, gen: pivRow.gen, edited: true, ...kl });
-        for (const sfid of kp.familyAsSpouse) {
-          const sf = index.getFamily(sfid);
-          if (!sf) continue;
-          const sid = sf.husband === k ? sf.wife : sf.husband;
-          if (!sid || rowMap.has(sid) || !index.getIndividual(sid)) continue;
-          const sp = index.getIndividual(sid);
-          const sl = lifeYears(sp, nowYear);
-          if (!sl) continue;
-          const srow = { id: sid, person: sp, gen: pivRow.gen, edited: true, ...sl };
-          if (sp.sex === 'M') unit.rows.unshift(srow); else unit.rows.push(srow);
-          if (unit.smarr == null) unit.smarr = sf.marriage.value?.year ?? null;
-        }
-        if (!unit.rows.length) continue;
-        // placement avec solveur anti-chevauchement, sous la ligne du pivot
-        const h = unit.rows.length * ROW_H + (unit.rows.length - 1) * GAP_ROW;
-        const t1 = Math.min(...unit.rows.map((r) => r.t1));
-        const t2 = Math.max(...unit.rows.map((r) => r.t2));
-        let y = cursor, guard = 0, c;
-        while ((c = conflicts(y, h, t1, t2)) && guard++ < 500) y = c.yBot + GAP_ROW;
-        let ry = y;
-        for (const r of unit.rows) {
-          r.y = ry;
-          placed.push({ yTop: r.y, yBot: r.y + ROW_H, t1: r.t1, t2: r.t2, label: r.id });
+
+      // ---------- descendants (M6b) ----------
+      for (const e of (getEdits ? getEdits() : [])) {
+        if (e.type !== 'down' || e._done) continue;
+        const pivRow = rowMap.get(e.pivot);
+        if (!pivRow) continue;
+        const seen = new Set([...rowMap.keys()]);
+        seen.delete(e.pivot);
+        const node = buildDown(e.pivot, 0, seen, e.depth, pivRow.gen);
+        // nouveaux conjoints du pivot : sous sa ligne (solveur)
+        let y = pivRow.y + ROW_H + GAP_ROW;
+        for (const r of node.rows) {
+          if (rowMap.has(r.id)) continue;
+          let guard = 0, c;
+          while ((c = conflicts(y, ROW_H, r.t1, r.t2)) && guard++ < 500) y = c.yBot + GAP_ROW;
+          r.y = y;
+          placed.push({ yTop: y, yBot: y + ROW_H, t1: r.t1, t2: r.t2, label: r.id });
           rowMap.set(r.id, r); allRows.push(r);
-          ry += ROW_H + GAP_ROW;
+          y += ROW_H + GAP_ROW;
         }
-        cursor = y + h + BAND_GAP;
-        sibPlacements.push({ unit, parentsUnit });
+        // enfants : blocs sous le couple
+        let cursor = y + BAND_GAP;
+        for (const sub of node.subs) {
+          placeDown(sub, cursor, cursor);
+          cursor = (sub.yBot ?? cursor) + BAND_GAP;
+        }
+        // collecte des lignes des sous-arbres dans rowMap/allRows (sinon
+        // elles sont placées mais jamais dessinées)
+        const collectSub = (n) => {
+          for (const r of n.rows) {
+            if (!rowMap.has(r.id)) { rowMap.set(r.id, r); allRows.push(r); }
+          }
+          n.subs.forEach(collectSub);
+        };
+        node.subs.forEach(collectSub);
+        extraDownNodes.push(node);
+        e._done = true; changed = true;
       }
+
+      // ---------- fratrie (M6a) ----------
+      for (const e of (getEdits ? getEdits() : [])) {
+        if (e.type !== 'siblings' || e._done) continue;
+        const pivRow = rowMap.get(e.pivot);
+        const pivPerson = index.getIndividual(e.pivot);
+        if (!pivRow || !pivPerson) continue;
+        // parents du pivot : unité existante (déjà liée) ou ajoutée ici
+        let parentsUnit = findAncUnit(ancUnits, e.pivot);
+        if (!parentsUnit) {
+          for (const fid of pivPerson.childInFamilies) {
+            const fam = index.getFamily(fid);
+            if (!fam) continue;
+            const mkRow = (id) => {
+              if (!id || rowMap.has(id) || !index.getIndividual(id)) return null;
+              const l = lifeYears(index.getIndividual(id), nowYear);
+              return l ? { id, person: index.getIndividual(id),
+                           gen: pivRow.gen - 1, edited: true, ...l } : null;
+            };
+            const u = { childId: e.pivot,
+                        marr: fam.marriage.value?.year ?? null,
+                        upRow: mkRow(fam.husband), downRow: mkRow(fam.wife) };
+            if (!u.upRow && !u.downRow) continue;
+            if (u.upRow) u.upRow.branch = [];
+            if (u.downRow) u.downRow.branch = [];
+            // convention symétrique : père au-dessus de la ligne du pivot,
+            // mère en dessous (solveur anti-chevauchement)
+            placeAncestors([u], pivRow);
+            for (const r of [u.upRow, u.downRow]) {
+              if (r && !rowMap.has(r.id)) { rowMap.set(r.id, r); allRows.push(r); }
+            }
+            ancUnits.push(u);   // walkAnc dessinera union + filiation vers le pivot
+            parentsUnit = u;
+            break;
+          }
+        }
+        let cursor = pivRow.y + ROW_H + GAP_ROW;
+        for (const k of siblingIds(index, e.pivot)) {
+          if (rowMap.has(k)) continue;
+          const kp = index.getIndividual(k);
+          const unit = { personId: k, rows: [], smarr: null };
+          const kl = lifeYears(kp, nowYear);
+          if (kl) unit.rows.push({ id: k, person: kp, gen: pivRow.gen, edited: true, ...kl });
+          for (const sfid of kp.familyAsSpouse) {
+            const sf = index.getFamily(sfid);
+            if (!sf) continue;
+            const sid = sf.husband === k ? sf.wife : sf.husband;
+            if (!sid || rowMap.has(sid) || !index.getIndividual(sid)) continue;
+            const sp = index.getIndividual(sid);
+            const sl = lifeYears(sp, nowYear);
+            if (!sl) continue;
+            const srow = { id: sid, person: sp, gen: pivRow.gen, edited: true, ...sl };
+            if (sp.sex === 'M') unit.rows.unshift(srow); else unit.rows.push(srow);
+            if (unit.smarr == null) unit.smarr = sf.marriage.value?.year ?? null;
+          }
+          if (!unit.rows.length) continue;
+          // placement avec solveur anti-chevauchement, sous la ligne du pivot
+          const h = unit.rows.length * ROW_H + (unit.rows.length - 1) * GAP_ROW;
+          const t1 = Math.min(...unit.rows.map((r) => r.t1));
+          const t2 = Math.max(...unit.rows.map((r) => r.t2));
+          let y = cursor, guard = 0, c;
+          while ((c = conflicts(y, h, t1, t2)) && guard++ < 500) y = c.yBot + GAP_ROW;
+          let ry = y;
+          for (const r of unit.rows) {
+            r.y = ry;
+            placed.push({ yTop: r.y, yBot: r.y + ROW_H, t1: r.t1, t2: r.t2, label: r.id });
+            rowMap.set(r.id, r); allRows.push(r);
+            ry += ROW_H + GAP_ROW;
+          }
+          cursor = y + h + BAND_GAP;
+          sibPlacements.push({ unit, parentsUnit });
+        }
+        e._done = true; changed = true;
+      }
+
+      if (!changed) break;
     }
 
     if (!allRows.length) { log.info('Frise : aucune date exploitable'); return; }
@@ -562,7 +587,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       .attr('y', minY - 20 + offY).attr('text-anchor', 'middle').text((t) => t);
 
     // ---------- repères de mariage + filiations ----------
-    /** Année de mariage heuristique : moyenne des naissances + 25 ans. */
+    /** A
+nnée de mariage heuristique : moyenne des naissances + 25 ans. */
     const heuristicMarr = (rows) => {
       const b = rows.map((r) => r?.t1).filter((v) => v != null);
       return b.length ? Math.round(b.reduce((s, v) => s + v, 0) / b.length) + 25 : null;
@@ -611,7 +637,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       }
     })(down);
 
-    // ascendants : union du couple + filiation vers l'enfant
+    // asce
+ndants : union du couple + filiation vers l'enfant
     const walkAnc = (u) => {
       const ids = [u.upRow?.id, u.downRow?.id, u.childId].filter(Boolean);
       const marr = u.marr ?? heuristicMarr([u.upRow, u.downRow]);
@@ -658,7 +685,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     }
 
     // branches descendants ajoutées : unions + filiations (M6b)
-    for (const node of extraDownNodes) {
+    for (const node of extraDownNodes) 
+{
       const mainRow = rowMap.get(node.pid);
       if (!mainRow) continue;
       for (const u of node.unions) {
@@ -705,7 +733,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         const maxCh = Math.floor((w - 6) / 5.6);
         const name = ((b.person.name.given || '') + ' '
           + (b.person.name.surname || '?').toUpperCase()).trim();
-        // nom tronqué si besoin pour laisser place aux dates
+     
+   // nom tronqué si besoin pour laisser place aux dates
         const nameCh = Math.max(1, maxCh - date.length);
         const s = name.length > nameCh ? name.slice(0, nameCh - 1) + '…' : name;
         return s + date;
