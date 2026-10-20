@@ -604,6 +604,8 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
     // d'une fratrie ajoutée...). On traite les éditions en passes : chaque
     // édition devient traitée quand son pivot est affiché, jusqu'à ce qu'une
     // passe n'aboutisse plus — l'ordre des clics devient indifférent.
+    // Dans chaque passe : up/down d'abord, fratrie ensuite (la fratrie d'un
+    // ascendant venant d'être ajouté est ainsi traitée dans la même passe).
     for (const e of (getEdits ? getEdits() : [])) e._done = false;
     for (let pass = 0; pass < 10; pass++) {
       let changed = false;
@@ -613,22 +615,97 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         if ((e.type !== 'up' && e.type !== 'down') || e._done) continue;
         const pivotCard = [...out.cards.values()].find((c) => c.id === e.pivot);
         if (!pivotCard) continue;
+        const shownIds = new Set([...out.cards.values()].map((c) => c.id));
+        if (e.type === 'up') {
+          // ascendants du pivot : fan-out dans les colonnes à gauche
+          markEdited = true;
+          placeUp(e.pivot, out, { cx: pivotCard.cx, cy: pivotCard.cy }, e.depth, shownIds);
+          markEdited = false;
+        } else {
+          // descendants du pivot : nouveaux conjoints empilés sous sa pile,
+          // enfants dans les colonnes à droite (profondeur e.depth)
+          const seen = new Set(shownIds);
+          seen.delete(e.pivot);
+          const unit = buildDownUnit(e.pivot, 0, seen, e.depth);
+          // bas de la pile contiguë du pivot
+          const col = [...out.cards.values()]
+            .filter((c) => c.cx === pivotCard.cx && c.cy >= pivotCard.cy)
+            .sort((a, b) => a.cy - b.cy);
+          let bottom = pivotCard.cy + NODE_H / 2;
+          for (const c of col) {
+            if (c.cy - NODE_H / 2 <= bottom + GAP_Y + 1) bottom = Math.max(bottom, c.cy + NODE_H / 2);
+            else break;
+          }
+          markEdited = true;
+          const spouseCys = [];
+          let sy = bottom + GAP_Y;
+          for (const u of unit.unions) {
+            if (!u.hasRow) continue;
+            const cy = nextCy(pivotCard.cx, sy);
+            sy = cy + NODE_H / 2 + GAP_Y;
+            if (u.ghost) {
+              out.cards.set('ghost:' + u.famId, { id: 'ghost:' + u.famId, person: null,
+                ghost: true, isRoot: false, cx: pivotCard.cx, cy, edited: true });
+            } else {
+              out.cards.set(u.spouseId + '@sib', { id: u.spouseId,
+                person: index.getIndividual(u.spouseId), ghost: false, isRoot: false,
+                cx: pivotCard.cx, cy, edited: true });
+            }
+            spouseCys.push({ u, cy });
+          }
+          if (spouseCys.length) {
+            out.unions.push({ x1: pivotCard.cx + NODE_W / 2, y1: pivotCard.cy,
+              x2: pivotCard.cx + NODE_W / 2, y2: spouseCys[spouseCys.length - 1].cy,
+              ids: [e.pivot, ...spouseCys.map((s) => s.u.spouseId).filter(Boolean)] });
+          }
+          // enfants : à droite, empilés vers le bas depuis la hauteur du pivot
+          let cursorY = pivotCard.cy;
+          const xChild = pivotCard.cx + NODE_W / 2 + GAP_X;
+          for (const o of spouseCys) {
+            const yFrom = (pivotCard.cy + o.cy) / 2;
+            for (const c of o.u.children) {
+              const yc = cursorY + c.h / 2;
+              cursorY = yc + c.h / 2 + GAP_Y;
+              out.filiation.push({ d: filiationPath(pivotCard.cx + NODE_W / 2, yFrom,
+                                                     xChild, yc),
+                                   ids: [e.pivot, o.u.spouseId, c.person.id].filter(Boolean) });
+              placeDown(c, xChild, yc, out);
+            }
+          }
+          // unions sans ligne de conjoint mais avec enfants
+          for (const u of unit.unions) {
+            if (u.hasRow) continue;
+            for (const c of u.children) {
+              const yc = cursorY + c.h / 2;
+              cursorY = yc + c.h / 2 + GAP_Y;
+              out.filiation.push({ d: filiationPath(pivotCard.cx + NODE_W / 2,
+                                                     pivotCard.cy, xChild, yc),
+                                   ids: [e.pivot, u.spouseId, c.person.id].filter(Boolean) });
+              placeDown(c, xChild, yc, out);
+            }
+          }
+          markEdited = false;
+        }
         e._done = true; changed = true;
-      const pivotCard = [...out.cards.values()].find((c) => c.id === e.pivot);
-      if (!pivotCard) continue;
-      const shownIds = new Set([...out.cards.values()].map((c) => c.id));
-      if (e.type === 'up') {
-        // ascendants du pivot : fan-out dans les colonnes à gauche
-        markEdited = true;
-        placeUp(e.pivot, out, { cx: pivotCard.cx, cy: pivotCard.cy }, e.depth, shownIds);
-        markEdited = false;
-      } else {
-        // descendants du pivot : nouveaux conjoints empilés sous sa pile,
-        // enfants dans les colonnes à droite (profondeur e.depth)
-        const seen = new Set(shownIds);
-        seen.delete(e.pivot);
-        const unit = buildDownUnit(e.pivot, 0, seen, e.depth);
-        // bas de la pile contiguë du pivot
+      }
+
+      // ---------- fratrie (M6a) ----------
+      // L'ajout d'une fratrie inclut les parents du pivot s'ils ne sont pas
+      // déjà affichés ; ils sont placés dans la colonne de GAUCHE (côté
+      // ascendants), la fratrie sous la pile contiguë du pivot, chaque carte
+      // repoussée par un mini-solveur sous les cartes déjà présentes de sa
+      // colonne (pas de chevauchement avec les cousins existants).
+      for (const e of (getEdits ? getEdits() : [])) {
+        if (e.type !== 'siblings' || e._done) continue;
+        const pivotCard = [...out.cards.values()].find((c) => c.id === e.pivot);
+        if (!pivotCard) continue;
+        const shown = new Set([...out.cards.values()].map((c) => c.id));
+        const sibs = siblingIds(index, e.pivot).filter((k) => !shown.has(k));
+        if (!sibs.length) { e._done = true; changed = true; continue; }
+
+        const parentCx = pivotCard.cx - (NODE_W + GAP_X);  // colonne de gauche
+
+        // bas de la pile contiguë du pivot (carte + conjoints empilés)
         const col = [...out.cards.values()]
           .filter((c) => c.cx === pivotCard.cx && c.cy >= pivotCard.cy)
           .sort((a, b) => a.cy - b.cy);
@@ -637,166 +714,89 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
           if (c.cy - NODE_H / 2 <= bottom + GAP_Y + 1) bottom = Math.max(bottom, c.cy + NODE_H / 2);
           else break;
         }
-        markEdited = true;
-        const spouseCys = [];
-        let sy = bottom + GAP_Y;
-        for (const u of unit.unions) {
-          if (!u.hasRow) continue;
-          const cy = nextCy(pivotCard.cx, sy);
-          sy = cy + NODE_H / 2 + GAP_Y;
-          if (u.ghost) {
-            out.cards.set('ghost:' + u.famId, { id: 'ghost:' + u.famId, person: null,
-              ghost: true, isRoot: false, cx: pivotCard.cx, cy, edited: true });
-          } else {
-            out.cards.set(u.spouseId + '@sib', { id: u.spouseId,
-              person: index.getIndividual(u.spouseId), ghost: false, isRoot: false,
-              cx: pivotCard.cx, cy, edited: true });
+
+        // parents du pivot : crochet existant s'ils sont déjà affichés,
+        // sinon ajoutés dans la colonne de gauche, alignés sur le pivot
+        let origin = out.filiationOrigin.get(e.pivot) ?? null;
+        let originNew = false;
+        if (!origin) {
+          const piv = index.getIndividual(e.pivot);
+          for (const fid of piv.childInFamilies) {
+            const fam = index.getFamily(fid);
+            if (!fam) continue;
+            const parRows = [];
+            let top = pivotCard.cy - NODE_H / 2;   // départ : hauteur du pivot
+            for (const id of [fam.husband, fam.wife]) {
+              if (!id || shown.has(id) || !index.getIndividual(id)) continue;
+              const cy = nextCy(parentCx, top);
+              top = cy + NODE_H / 2 + GAP_Y;
+              shown.add(id);
+              out.cards.set(id + '@sib', {
+                id, person: index.getIndividual(id), ghost: false,
+                isRoot: false, cx: parentCx, cy, edited: true,
+              });
+              parRows.push({ id, cy });
+            }
+            if (!parRows.length) continue;
+            if (parRows.length === 2) {
+              out.unions.push({ x1: parentCx + NODE_W / 2, y1: parRows[0].cy,
+                                x2: parentCx + NODE_W / 2, y2: parRows[1].cy,
+                                ids: parRows.map((r) => r.id) });
+            }
+            origin = { x: parentCx + NODE_W / 2 + GAP_X / 2,
+                       y: parRows.reduce((s, r) => s + r.cy, 0) / parRows.length };
+            originNew = true;
+            break;
           }
-          spouseCys.push({ u, cy });
+          // parents introuvables : fratrie ajoutée sans bus de filiation
         }
-        if (spouseCys.length) {
-          out.unions.push({ x1: pivotCard.cx + NODE_W / 2, y1: pivotCard.cy,
-            x2: pivotCard.cx + NODE_W / 2, y2: spouseCys[spouseCys.length - 1].cy,
-            ids: [e.pivot, ...spouseCys.map((s) => s.u.spouseId).filter(Boolean)] });
-        }
-        // enfants : à droite, empilés vers le bas depuis la hauteur du pivot
-        let cursorY = pivotCard.cy;
-        const xChild = pivotCard.cx + NODE_W / 2 + GAP_X;
-        for (const o of spouseCys) {
-          const yFrom = (pivotCard.cy + o.cy) / 2;
-          for (const c of o.u.children) {
-            const yc = cursorY + c.h / 2;
-            cursorY = yc + c.h / 2 + GAP_Y;
-            out.filiation.push({ d: filiationPath(pivotCard.cx + NODE_W / 2, yFrom,
-                                                   xChild, yc),
-                                 ids: [e.pivot, o.u.spouseId, c.person.id].filter(Boolean) });
-            placeDown(c, xChild, yc, out);
-          }
-        }
-        // unions sans ligne de conjoint mais avec enfants
-        for (const u of unit.unions) {
-          if (u.hasRow) continue;
-          for (const c of u.children) {
-            const yc = cursorY + c.h / 2;
-            cursorY = yc + c.h / 2 + GAP_Y;
-            out.filiation.push({ d: filiationPath(pivotCard.cx + NODE_W / 2,
-                                                   pivotCard.cy, xChild, yc),
-                                 ids: [e.pivot, u.spouseId, c.person.id].filter(Boolean) });
-            placeDown(c, xChild, yc, out);
-          }
-        }
-        markEdited = false;
-      }
 
-      }
-
-      // ---------- fratrie (M6a) ----------
-      // (après up/down dans chaque passe : la fratrie d'un ascendant venant
-      // d'être ajouté est traitée dans la même passe)
-      for (const e of (getEdits ? getEdits() : [])) {
-        if (e.type !== 'siblings' || e._done) continue;
-ard) continue;
-      const shown = new Set([...out.cards.values()].map((c) => c.id));
-      const sibs = siblingIds(index, e.pivot).filter((k) => !shown.has(k));
-      if (!sibs.length) continue;
-
-      const parentCx = pivotCard.cx - (NODE_W + GAP_X);  // colonne de gauche
-
-      // bas de la pile contiguë du pivot (carte + conjoints empilés)
-      const col = [...out.cards.values()]
-        .filter((c) => c.cx === pivotCard.cx && c.cy >= pivotCard.cy)
-        .sort((a, b) => a.cy - b.cy);
-      let bottom = pivotCard.cy + NODE_H / 2;
-      for (const c of col) {
-        if (c.cy - NODE_H / 2 <= bottom + GAP_Y + 1) bottom = Math.max(bottom, c.cy + NODE_H / 2);
-        else break;
-      }
-
-      // parents du pivot : crochet existant s'ils sont déjà affichés,
-      // sinon ajoutés dans la colonne de gauche, alignés sur le pivot
-      let origin = out.filiationOrigin.get(e.pivot) ?? null;
-      let originNew = false;
-      if (!origin) {
-        const piv = index.getIndividual(e.pivot);
-        for (const fid of piv.childInFamilies) {
-          const fam = index.getFamily(fid);
-          if (!fam) continue;
-          const parRows = [];
-          let top = pivotCard.cy - NODE_H / 2;   // départ : hauteur du pivot
-          for (const id of [fam.husband, fam.wife]) {
-            if (!id || shown.has(id) || !index.getIndividual(id)) continue;
-            const cy = nextCy(parentCx, top);
-            top = cy + NODE_H / 2 + GAP_Y;
-            shown.add(id);
-            out.cards.set(id + '@sib', {
-              id, person: index.getIndividual(id), ghost: false,
-              isRoot: false, cx: parentCx, cy, edited: true,
+        // fratrie : cartes sous le pivot (mini-solveur anti-chevauchement),
+        // conjoints empilés dessous, bus vertical depuis l'union des parents
+        let cursorY = bottom + GAP_Y;
+        for (const k of sibs) {
+          const kp = index.getIndividual(k);
+          const kcy = nextCy(pivotCard.cx, cursorY);
+          cursorY = kcy + NODE_H / 2 + GAP_Y;
+          out.cards.set(k + '@sib', {
+            id: k, person: kp, ghost: false, isRoot: false,
+            cx: pivotCard.cx, cy: kcy, edited: true,
+          });
+          if (origin) {
+            out.filiation.push({
+              d: `M ${origin.x} ${origin.y} L ${origin.x} ${kcy}` +
+                 ` L ${pivotCard.cx - NODE_W / 2} ${kcy}`,
+              ids: [k],
             });
-            parRows.push({ id, cy });
           }
-          if (!parRows.length) continue;
-          if (parRows.length === 2) {
-            out.unions.push({ x1: parentCx + NODE_W / 2, y1: parRows[0].cy,
-                              x2: parentCx + NODE_W / 2, y2: parRows[1].cy,
-                              ids: parRows.map((r) => r.id) });
+          let sy = cursorY;
+          for (const sfid of kp.familyAsSpouse) {
+            const sf = index.getFamily(sfid);
+            if (!sf) continue;
+            const sid = sf.husband === k ? sf.wife : sf.husband;
+            if (!sid || !index.getIndividual(sid) || shown.has(sid)) continue;
+            const scy = nextCy(pivotCard.cx, sy);
+            sy = scy + NODE_H / 2 + GAP_Y;
+            shown.add(sid);
+            out.cards.set(sid + '@sib', {
+              id: sid, person: index.getIndividual(sid), ghost: false,
+              isRoot: false, cx: pivotCard.cx, cy: scy, edited: true,
+            });
+            out.unions.push({ x1: pivotCard.cx + NODE_W / 2, y1: kcy,
+                              x2: pivotCard.cx + NODE_W / 2, y2: scy,
+                              ids: [k, sid] });
           }
-          origin = { x: parentCx + NODE_W / 2 + GAP_X / 2,
-                     y: parRows.reduce((s, r) => s + r.cy, 0) / parRows.length };
-          originNew = true;
-          break;
+          cursorY = sy + GAP_Y;
         }
-        // parents introuvables : fratrie ajoutée sans bus de filiation
-      }
 
-      // fratrie : cartes sous le pivot (mini-solveur anti-chevauchement),
-      // conjoints empilés dessous, bus vertical depuis l'union des parents
-      let cursorY = bottom + GAP_Y;
-      for (const k of sibs) {
-        const kp = index.getIndividual(k);
-        const kcy = nextCy(pivotCard.cx, cursorY);
-        cursorY = kcy + NODE_H / 2 + GAP_Y;
-        out.cards.set(k + '@sib', {
-          id: k, person: kp, ghost: false, isRoot: false,
-          cx: pivotCard.cx, cy: kcy, edited: true,
-        });
-        if (origin) {
+        // parents nouvellement ajoutés : bus vers le pivot aussi
+        if (origin && originNew) {
           out.filiation.push({
-            d: `M ${origin.x} ${origin.y} L ${origin.x} ${kcy}` +
-               ` L ${pivotCard.cx - NODE_W / 2} ${kcy}`,
-            ids: [k],
+            d: `M ${origin.x} ${origin.y} L ${origin.x} ${pivotCard.cy}` +
+               ` L ${pivotCard.cx - NODE_W / 2} ${pivotCard.cy}`,
+            ids: [e.pivot],
           });
         }
-        let sy = cursorY;
-        for (const sfid of kp.familyAsSpouse) {
-          const sf = index.getFamily(sfid);
-          if (!sf) continue;
-          const sid = sf.husband === k ? sf.wife : sf.husband;
-          if (!sid || !index.getIndividual(sid) || shown.has(sid)) continue;
-          const scy = nextCy(pivotCard.cx, sy);
-          sy = scy + NODE_H / 2 + GAP_Y;
-          shown.add(sid);
-          out.cards.set(sid + '@sib', {
-            id: sid, person: index.getIndividual(sid), ghost: false,
-            isRoot: false, cx: pivotCard.cx, cy: scy, edited: true,
-          });
-          out.unions.push({ x1: pivotCard.cx + NODE_W / 2, y1: kcy,
-                            x2: pivotCard.cx + NODE_W / 2, y2: scy,
-                            ids: [k, sid] });
-        }
-        cursorY = sy + GAP_Y;
-      }
-
-      // parents nouvellement ajoutés : bus vers le pivot aussi
-      if (origin && originNew) {
-        out.filiation.push({
-          d: `M ${origin.x} ${origin.y} L ${origin.x} ${pivotCard.cy}` +
-             ` L ${pivotCard.cx - NODE_W / 2} ${pivotCard.cy}`,
-          ids: [e.pivot],
-        });
-      }
-    }
-
-
         e._done = true; changed = true;
       }
 
