@@ -113,3 +113,51 @@ export function baseScope(index, rootId, upGen, downGen) {
   walkUp(rootId, 0, new Set([rootId]));
   return ids;
 }
+
+/**
+ * Ids potentiels apportés par une édition up/down depuis un pivot
+ * (pour n'afficher l'action que si elle apporte de nouveaux individus).
+ * @param {Object} index - index applicatif
+ * @param {string} pivot - xref de l'individu pivot
+ * @param {string} type - 'up' | 'down'
+ * @param {number} depth - générations potentielles
+ * @returns {Set<string>}
+ */
+export function potentialIds(index, pivot, type, depth) {
+  const ids = new Set();
+  const walkUp = (pid, d, seen) => {
+    if (d >= depth) return;
+    const p = index.getIndividual(pid);
+    if (!p) return;
+    for (const fid of p.childInFamilies) {
+      const fam = index.getFamily(fid);
+      if (!fam) continue;
+      for (const par of [fam.husband, fam.wife]) {
+        if (!par || !index.getIndividual(par) || seen.has(par)) continue;
+        seen.add(par); ids.add(par);
+        walkUp(par, d + 1, seen);
+      }
+    }
+  };
+  const walkDown = (pid, d, seen) => {
+    if (d >= depth) return;
+    const p = index.getIndividual(pid);
+    if (!p) return;
+    for (const fid of p.familyAsSpouse) {
+      const fam = index.getFamily(fid);
+      if (!fam) continue;
+      const sid = fam.husband === pid ? fam.wife : fam.husband;
+      if (sid && index.getIndividual(sid) && !seen.has(sid)) {
+        seen.add(sid); ids.add(sid);
+      }
+      for (const c of fam.children) {
+        if (!c || !index.getIndividual(c) || seen.has(c)) continue;
+        seen.add(c); ids.add(c);
+        walkDown(c, d + 1, seen);
+      }
+    }
+  };
+  if (type === 'up') walkUp(pivot, 0, new Set([pivot]));
+  if (type === 'down') walkDown(pivot, 0, new Set([pivot]));
+  return ids;
+}

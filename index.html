@@ -35,7 +35,6 @@
   #btn-reset { padding: .45rem .9rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
   #btn-fullscreen { padding: .45rem .9rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
   #workspace:fullscreen { background: #fff; padding: 1rem 1.5rem; }
-  #workspace:fullscreen #tree-container { height: calc(100vh - 6rem); }
   .ctx-menu { position: fixed; z-index: 1100; display: none; min-width: 15rem;
     background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
     box-shadow: 0 6px 20px rgba(0,0,0,.15); padding: .3rem 0; font-size: 13px; }
@@ -98,6 +97,13 @@
   .tl-link { fill: none; stroke: #94a3b8; stroke-width: 1.2; }
   .tl-marry { stroke: #b45309; stroke-width: 2; }
   .tl-marry.dim { opacity: .1; }
+  /* mini-éditeur de générations dans le menu contextuel (M6b) */
+  .ctx-editor { display: flex; gap: .45rem; align-items: center;
+    padding: .45rem .9rem; font-size: 13px; }
+  .ctx-editor input { width: 3.4rem; padding: .15rem .3rem;
+    border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px; }
+  .ctx-editor button { padding: .15rem .5rem; border: 1px solid #cbd5e1;
+    border-radius: 4px; background: #eff6ff; cursor: pointer; font-size: 13px; }
 </style>
 <script type="importmap">
 {

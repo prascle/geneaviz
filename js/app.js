@@ -15,7 +15,7 @@ import { initTree } from './tree.js';
 import { initTimeline } from './timeline.js';
 import { formatDate } from './utils.js';
 import { initContextMenu } from './contextmenu.js';
-import { createEdits, siblingIds, baseScope } from './edits.js';
+import { createEdits, siblingIds, baseScope, potentialIds } from './edits.js';
 
 const log = logger('app');
 let treeApi = null;         // vue arbre combiné
@@ -90,28 +90,48 @@ async function handleFile(file) {
         { label: 'Définir comme racine',
           action: () => { showDetails(index, person.id); setRoot(person.id); } },
       ];
-      // actions M6 : fratrie (ajout si apport réel, retrait si éditée)
-      const sibs = siblingIds(index, person.id);
+      let sep = false;
+      const pushSep = () => { if (!sep) { items.push({ separator: true }); sep = true; } };
       const gens = () => ({
         u: Number(document.getElementById('gen-up').value),
         d: Number(document.getElementById('gen-down').value),
       });
       const { u, d } = currentRootId ? gens() : { u: 3, d: 3 };
-      const shown = baseScope(index, currentRootId, u, d);
-      const newSibs = sibs.filter((s) => !shown.has(s));
-      if (newSibs.length) {
-        items.push({ separator: true },
-          { label: `Ajouter la fratrie (${sibs.length})`,
-            action: () => { edits.add(person.id, 'siblings'); refreshViews(); } });
+      const scope = currentRootId ? baseScope(index, currentRootId, u, d) : new Set();
+
+      // ---- ajouts (M6a fratrie + M6b ascendants/descendants) ----
+      const sibs = siblingIds(index, person.id);
+      if (sibs.some((s) => !scope.has(s))) {
+        pushSep();
+        items.push({ label: `Ajouter la fratrie (${sibs.length})`,
+          action: () => { edits.add(person.id, 'siblings'); refreshViews(); } });
       }
-      if (edits.get(person.id, 'siblings')) {
-        items.push({ separator: true },
-          { label: 'Retirer : fratrie',
-            action: () => { edits.remove(person.id, 'siblings'); refreshViews(); } });
+      if (!edits.get(person.id, 'up')
+          && [...potentialIds(index, person.id, 'up', u)].some((id) => !scope.has(id))) {
+        pushSep();
+        items.push({ editor: { label: 'Ajouter les ascendants', min: 1, max: 10,
+          def: u, onValidate: (n) => { edits.add(person.id, 'up', n); refreshViews(); } } });
+      }
+      if (!edits.get(person.id, 'down')
+          && [...potentialIds(index, person.id, 'down', d)].some((id) => !scope.has(id))) {
+        pushSep();
+        items.push({ editor: { label: 'Ajouter les descendants', min: 1, max: 10,
+          def: d, onValidate: (n) => { edits.add(person.id, 'down', n); refreshViews(); } } });
+      }
+
+      // ---- retraits : une entrée par édition active dont ce pivot est l'origine ----
+      const names = { siblings: 'fratrie', up: 'ascendants', down: 'descendants' };
+      for (const t of ['siblings', 'up', 'down']) {
+        const ed = edits.get(person.id, t);
+        if (!ed) continue;
+        pushSep();
+        items.push({ label: 'Retirer : ' + names[t]
+          + (t !== 'siblings' ? ` (${ed.depth} gén.)` : ''),
+          action: () => { edits.remove(person.id, t); refreshViews(); } });
       }
       ctxMenu.show(event, items);
     };
-
+    
     // ---------- Vues (arbre + chronologique) : réglages partagés ----------
     treeApi = initTree({
       container: document.getElementById('tree-container'),
@@ -123,7 +143,7 @@ async function handleFile(file) {
     timelineApi = initTimeline({
       container: document.getElementById('timeline-container'),
       index,
-      onSelectPerson: (id) => { showDetails(index, id); setRoot(id); },
+      onSelectPerson: (id) => showDetails(index, id),   // clic gauche : détail seul (racine via menu contextuel)
       onContextPerson,
       getEdits: () => edits.all(),
     });
@@ -154,6 +174,39 @@ async function handleFile(file) {
         setStatus('✘ Plein écran non disponible dans ce navigateur.', true));
     });
     document.addEventListener('fullscreenchange', setFsLabel);
+    // Hauteur des cadres en plein écran : l'espace réellement disponible
+    // sous la barre de vues et le titre de section (mesuré après relayout,
+    // d'où le requestAnimationFrame — la règle CSS calc(100vh - 6rem) était
+    // une approximation fausse dès que la barre de vues passe sur 2 lignes).
+    const viewContainers = {
+      tree: document.getElementById('tree-container'),
+      chrono: document.getElementById('timeline-container'),
+    };
+    function sizeViewContainers() {
+      const fs = document.fullscreenElement != null;
+      for (const [name, cont] of Object.entries(viewContainers)) {
+        if (fs) {
+          if (viewSections[name].hidden) continue;   // pas de mise en page si masqué
+          const top = cont.getBoundingClientRect().top;
+          cont.style.height = Math.max(window.innerHeight - top - 12, 240) + 'px';
+        } else {
+          cont.style.height = '';   // retour au CSS / hauteur calculée par la vue
+        }
+      }
+    }
+    function onFrameResize() {
+      sizeViewContainers();
+      if (document.fullscreenElement != null) {
+        // réajuster le zoom de la vue active au nouveau cadre
+        (activeView === 'tree' ? treeApi : timelineApi).reset();
+      } else if (currentRootId) {
+        timelineApi.update(currentRootId);   // la frise recalcule sa hauteur
+      }
+    }
+    document.addEventListener('fullscreenchange',
+      () => requestAnimationFrame(onFrameResize));
+    window.addEventListener('resize',
+      () => { if (document.fullscreenElement != null) requestAnimationFrame(onFrameResize); });
     const genUpSel = document.getElementById('gen-up');
     const genDownSel = document.getElementById('gen-down');
     const btnReset = document.getElementById('btn-reset');
@@ -184,6 +237,10 @@ async function handleFile(file) {
       activeView = name;
       viewBtns.forEach((b) => b.classList.toggle('active', b.dataset.view === name));
       for (const [k, s] of Object.entries(viewSections)) s.hidden = k !== name;
+      if (document.fullscreenElement != null) {
+        sizeViewContainers();   // en plein écran, le cadre doit être retaillé
+        if (currentRootId) (activeView === 'tree' ? treeApi : timelineApi).reset();
+      }
     }
     viewBtns.forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
     btnReset.addEventListener('click', () =>
