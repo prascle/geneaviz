@@ -143,7 +143,7 @@ async function handleFile(file) {
     timelineApi = initTimeline({
       container: document.getElementById('timeline-container'),
       index,
-      onSelectPerson: (id) => { showDetails(index, id); setRoot(id); },
+      onSelectPerson: (id) => showDetails(index, id),   // clic gauche : détail seul (racine via menu contextuel)
       onContextPerson,
       getEdits: () => edits.all(),
     });

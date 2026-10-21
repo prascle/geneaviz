@@ -75,13 +75,28 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
   container.innerHTML = '';
   let currentRootId = null;
 
-  const svg = d3.select(container).append('svg').attr('width', '100%');
+  const svg = d3.select(container).append('svg').attr('width', '100%').attr('height', '100%');
   const gZoom = svg.append('g');
   const gView = gZoom.append('g');
 
   const zoomBeh = d3.zoom().scaleExtent([0.15, 20])
     .on('zoom', (event) => gZoom.attr('transform', event.transform));
   svg.call(zoomBeh);
+
+  /** Cadre courant du dessin (pour le recentrage). */
+  let fitW = 0, fitH = 0;
+
+  /** Ajuste zoom et translation pour voir toute la frise : ajustement
+   *  horizontal ET vertical, contenu centré (bouton ⟲ Recentrer). */
+  function fitView(animated = false) {
+    if (!fitW || !fitH) return;
+    const cw = container.clientWidth || 800;
+    const ch = container.clientHeight || 400;
+    const k = Math.min(cw / fitW, ch / fitH, 1.4);
+    const t = d3.zoomIdentity.translate((cw - fitW * k) / 2, (ch - fitH * k) / 2).scale(k);
+    if (animated) svg.transition().duration(350).call(zoomBeh.transform, t);
+    else svg.call(zoomBeh.transform, t);
+  }
 
   // recalcul de la hauteur en entrée/sortie du plein écran
   document.addEventListener('fullscreenchange', () => {
@@ -558,13 +573,21 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     const offY = TOP_PAD - minY;   // décalage : tout devient positif
     const totalH = maxY - minY + TOP_PAD + BOTTOM_PAD;
     const totalW = X(maxT) + SIDE_PAD;
-    svg.attr('height', Math.max(totalH, 80))
-       .attr('viewBox', `0 0 ${totalW} ${Math.max(totalH, 80)}`)
-       .attr('preserveAspectRatio', 'xMinYMin meet');
-    // hauteur du conteneur : plafonnée en fenêtre normale, remplie en plein écran
+    fitW = totalW;
+    fitH = Math.max(totalH, 80);
+    // tout le contenu est décalé de offY vers le bas : les ascendants
+    // symétriques ont des y négatifs (plus de contenu coupé en haut ni
+    // de bande vide en bas)
+    gView.attr('transform', `translate(0,${offY})`);
+    // hauteur du conteneur : plafonnée en fenêtre normale ; en plein écran,
+    // elle remplit l'espace disponible sous l'en-tête de section
     const inFs = document.fullscreenElement != null;
-    const capH = inFs ? Math.max(window.innerHeight - 150, 320) : 720;
-    container.style.height = Math.max(Math.min(totalH, capH), 80) + 'px';
+    if (inFs) {
+      const top = container.getBoundingClientRect().top;
+      container.style.height = Math.max(window.innerHeight - top - 12, 240) + 'px';
+    } else {
+      container.style.height = Math.max(Math.min(totalH, 720), 80) + 'px';
+    }
 
     // ---------- axe des années ----------
     const span = maxT - minT;
@@ -573,10 +596,13 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     for (let t = Math.ceil(minT / step) * step; t <= maxT; t += step) ticks.push(t);
     const tickSel = gView.selectAll('g.tl-tick').data(ticks).join('g')
       .attr('transform', (t) => `translate(${X(t)},0)`);
+    // lignes de dates sur toute la hauteur, dates marquées en haut et en bas
     tickSel.append('line').attr('class', 'tl-grid')
-      .attr('y1', minY - 14 + offY).attr('y2', maxY + offY);
+      .attr('y1', 24 - offY).attr('y2', fitH - 4 - offY);
     tickSel.append('text').attr('class', 'tl-tick')
-      .attr('y', minY - 20 + offY).attr('text-anchor', 'middle').text((t) => t);
+      .attr('y', 16 - offY).attr('text-anchor', 'middle').text((t) => t);
+    tickSel.append('text').attr('class', 'tl-tick')
+      .attr('y', fitH - 6 - offY).attr('text-anchor', 'middle').text((t) => t);
 
     // ---------- repères de mariage + filiations ----------
     /** Année de mariage heuristique : moyenne des naissances + 25 ans. */
@@ -743,7 +769,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         if (onContextPerson) onContextPerson(b.person, event);
       });
 
-    svg.call(zoomBeh.transform, d3.zoomIdentity);
+    fitView(false);
     log.info(`Frise chronologique : ${boxes.length} boîte(s) ` +
       `(${upGen} gén. ascendants symétriques, ${downGen} gén. descendants)`);
   }
@@ -752,6 +778,6 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
   return {
     update,
     setGenerations: (u, d) => { upGen = u; downGen = d; update(currentRootId); },
-    reset: () => svg.call(zoomBeh.transform, d3.zoomIdentity),
+    reset: () => fitView(true),
   };
 }

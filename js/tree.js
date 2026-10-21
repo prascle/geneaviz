@@ -434,7 +434,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
    * partant du milieu du crochet. L'origine de chaque filiation est
    * mémorisée (out.filiationOrigin) pour les branches ajoutées (M6).
    */
-  function placeUp(rootId, out, anchor = null, maxGen = upGen, shownIds = null) {
+  function placeUp(rootId, out, anchor = null, maxGen = upGen, shownIds = null, dy = 0) {
     const rootCx = anchor ? anchor.cx : NODE_W / 2;
     const rootCy = anchor ? anchor.cy : 0;
     const data = buildAncestorTree(index, rootId, maxGen, shownIds);
@@ -446,7 +446,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
     const rootNode = nodes[0];
     const shift = rootNode.x;
     const cardX = (n) => rootCx - n.y;
-    const Y = (n) => n.x - shift + rootCy;
+    const Y = (n) => n.x - shift + rootCy + dy;
     const byId = new Map();
     for (const n of nodes) if (n.depth > 0) byId.set(n.data.id, n);
 
@@ -487,7 +487,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         const fam = index.getFamily(fid);
         if (fam && (fam.husband === n.data.id || fam.wife === n.data.id)) { famId = fid; break; }
       }
-      const childY = childNode.depth === 0 ? 0 : Y(childNode);
+      const childY = childNode.depth === 0 ? rootCy + dy : Y(childNode);
       const childLeftX = rootCx - childNode.y - NODE_W / 2;
 
       const u = famId != null ? ancUnions.get(famId) : null;
@@ -598,6 +598,26 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       return top + NODE_H / 2;
     };
 
+    /** Décale yc vers le bas pour que le sous-arbre (hauteur h) évite les
+     *  cartes déjà présentes dans la colonne colCx. */
+    const clearColumn = (colCx, yc, h) => {
+      let guard = 0;
+      for (;;) {
+        let need = 0;
+        for (const c of out.cards.values()) {
+          if (Math.abs(c.cx - colCx) >= 1) continue;
+          const cTop = c.cy - NODE_H / 2, cBot = c.cy + NODE_H / 2;
+          const top = yc - h / 2, bot = yc + h / 2;
+          if (top < cBot + GAP_Y && cTop - GAP_Y < bot) {
+            need = Math.max(need, cBot + GAP_Y - top);
+          }
+        }
+        if (need <= 0 || guard++ > 100) break;
+        yc += need;
+      }
+      return yc;
+    };
+
     // ---------- branches ajoutées (M6a/M6b) : passes jusqu'à point fixe ----------
     // Une édition peut porter sur un individu introduit par une autre édition
     // (récursivité : fratrie d'un ascendant ajouté, descendants d'un membre
@@ -617,9 +637,38 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         if (!pivotCard) continue;
         const shownIds = new Set([...out.cards.values()].map((c) => c.id));
         if (e.type === 'up') {
-          // ascendants du pivot : fan-out dans les colonnes à gauche
+          // ascendants du pivot : fan-out dans les colonnes à gauche.
+          // Le fan-out d3.tree ignore les cartes déjà présentes : on
+          // simule le groupe pour calculer un décalage vertical sans
+          // collision, puis on le dessine décalé.
+          let dy = 0;
+          const sim = buildAncestorTree(index, e.pivot, e.depth, shownIds);
+          if (sim && sim.children.length) {
+            const hh = d3.hierarchy(sim, (d) => d.children);
+            d3.tree().nodeSize([ANCESTOR_ROW, NODE_W + GAP_X])(hh);
+            const simNodes = hh.descendants();
+            const simShift = simNodes[0].x;
+            const existing = [...out.cards.values()];
+            let guard = 0;
+            for (;;) {
+              let need = 0;
+              for (const n of simNodes) {
+                if (n.depth === 0) continue;
+                const cx = pivotCard.cx - n.y;
+                const cy = n.x - simShift + pivotCard.cy + dy;
+                for (const c of existing) {
+                  if (Math.abs(c.cx - cx) >= 1) continue;
+                  if (Math.abs(c.cy - cy) < NODE_H + GAP_Y) {
+                    need = Math.max(need, c.cy + NODE_H / 2 + GAP_Y - (cy - NODE_H / 2));
+                  }
+                }
+              }
+              if (need <= 0 || guard++ > 50) break;
+              dy += need;
+            }
+          }
           markEdited = true;
-          placeUp(e.pivot, out, { cx: pivotCard.cx, cy: pivotCard.cy }, e.depth, shownIds);
+          placeUp(e.pivot, out, { cx: pivotCard.cx, cy: pivotCard.cy }, e.depth, shownIds, dy);
           markEdited = false;
         } else {
           // descendants du pivot : nouveaux conjoints empilés sous sa pile,
@@ -664,7 +713,9 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
           for (const o of spouseCys) {
             const yFrom = (pivotCard.cy + o.cy) / 2;
             for (const c of o.u.children) {
-              const yc = cursorY + c.h / 2;
+              // anti-collision : le sous-arbre passe sous les cartes
+              // déjà présentes dans la colonne des enfants
+              const yc = clearColumn(xChild + NODE_W / 2, cursorY + c.h / 2, c.h);
               cursorY = yc + c.h / 2 + GAP_Y;
               out.filiation.push({ d: filiationPath(pivotCard.cx + NODE_W / 2, yFrom,
                                                      xChild, yc),
@@ -676,7 +727,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
           for (const u of unit.unions) {
             if (u.hasRow) continue;
             for (const c of u.children) {
-              const yc = cursorY + c.h / 2;
+              const yc = clearColumn(xChild + NODE_W / 2, cursorY + c.h / 2, c.h);
               cursorY = yc + c.h / 2 + GAP_Y;
               out.filiation.push({ d: filiationPath(pivotCard.cx + NODE_W / 2,
                                                      pivotCard.cy, xChild, yc),
