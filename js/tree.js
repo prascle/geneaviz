@@ -794,12 +794,20 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
               parRows.push({ id, cy });
             }
             if (!parRows.length) continue;
-            if (parRows.length === 2) {
-              out.unions.push({ x1: parentCx + NODE_W / 2, y1: parRows[0].cy,
-                                x2: parentCx + NODE_W / 2, y2: parRows[1].cy,
+            // crochet d'union étendu jusqu'au bus de filiation (comme dans
+            // placeUp) : sinon le bus des enfants reste déconnecté des parents
+            const xU = parentCx + NODE_W / 2 + GAP_X / 2;
+            for (const pr of parRows) {
+              out.unions.push({ x1: parentCx + NODE_W / 2, y1: pr.cy,
+                                x2: xU, y2: pr.cy,
                                 ids: parRows.map((r) => r.id) });
             }
-            origin = { x: parentCx + NODE_W / 2 + GAP_X / 2,
+            if (parRows.length === 2) {
+              out.unions.push({ x1: xU, y1: parRows[0].cy,
+                                x2: xU, y2: parRows[1].cy,
+                                ids: parRows.map((r) => r.id) });
+            }
+            origin = { x: xU,
                        y: parRows.reduce((s, r) => s + r.cy, 0) / parRows.length };
             originNew = true;
             break;
