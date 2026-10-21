@@ -418,7 +418,10 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         const yc = acc + c.h / 2;
         acc += c.h; first = false;
         const xChild = xLeft + NODE_W + GAP_X;
-        out.filiation.push({ d: filiationPath(o.x, o.y, xChild, yc),
+        // la filiation arrive sur la CARTE de l'enfant (1re ligne de sa
+        // pile), pas au milieu de la pile individu+conjoints
+        const yTarget = yc - (c.rows - 1) * STACK_STEP / 2;
+        out.filiation.push({ d: filiationPath(o.x, o.y, xChild, yTarget),
                              ids: [unit.person.id, o.union.spouseId, c.person.id]
                                .filter(Boolean) });
         placeDown(c, xChild, yc, out);
@@ -717,8 +720,9 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
               // déjà présentes dans la colonne des enfants
               const yc = clearColumn(xChild + NODE_W / 2, cursorY + c.h / 2, c.h);
               cursorY = yc + c.h / 2 + GAP_Y;
+              const yTarget = yc - (c.rows - 1) * STACK_STEP / 2;
               out.filiation.push({ d: filiationPath(pivotCard.cx + NODE_W / 2, yFrom,
-                                                     xChild, yc),
+                                                     xChild, yTarget),
                                    ids: [e.pivot, o.u.spouseId, c.person.id].filter(Boolean) });
               placeDown(c, xChild, yc, out);
             }
@@ -729,8 +733,9 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             for (const c of u.children) {
               const yc = clearColumn(xChild + NODE_W / 2, cursorY + c.h / 2, c.h);
               cursorY = yc + c.h / 2 + GAP_Y;
+              const yTarget = yc - (c.rows - 1) * STACK_STEP / 2;
               out.filiation.push({ d: filiationPath(pivotCard.cx + NODE_W / 2,
-                                                     pivotCard.cy, xChild, yc),
+                                                     pivotCard.cy, xChild, yTarget),
                                    ids: [e.pivot, u.spouseId, c.person.id].filter(Boolean) });
               placeDown(c, xChild, yc, out);
             }

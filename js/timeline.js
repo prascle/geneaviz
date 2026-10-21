@@ -98,10 +98,9 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     else svg.call(zoomBeh.transform, t);
   }
 
-  // recalcul de la hauteur en entrée/sortie du plein écran
-  document.addEventListener('fullscreenchange', () => {
-    if (currentRootId) update(currentRootId);
-  });
+  // le redimensionnement plein écran / changement de vue est piloté par
+  // app.js, qui seule connaît la vue active (les sections masquées n'ont
+  // pas de mise en page : getBoundingClientRect() y renvoie 0)
 
   // infobulle partagée avec la vue arbre
   const tipHost = document.getElementById('workspace') ?? document.body;   // visible en plein écran
@@ -579,13 +578,10 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     // symétriques ont des y négatifs (plus de contenu coupé en haut ni
     // de bande vide en bas)
     gView.attr('transform', `translate(0,${offY})`);
-    // hauteur du conteneur : plafonnée en fenêtre normale ; en plein écran,
-    // elle remplit l'espace disponible sous l'en-tête de section
-    const inFs = document.fullscreenElement != null;
-    if (inFs) {
-      const top = container.getBoundingClientRect().top;
-      container.style.height = Math.max(window.innerHeight - top - 12, 240) + 'px';
-    } else {
+    // hauteur du conteneur : en fenêtre normale, plafonnée selon le contenu ;
+    // en plein écran, elle est pilotée par app.js (hauteur réellement
+    // disponible sous la barre de vues et le titre de section)
+    if (document.fullscreenElement == null) {
       container.style.height = Math.max(Math.min(totalH, 720), 80) + 'px';
     }
 

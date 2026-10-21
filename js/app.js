@@ -174,6 +174,39 @@ async function handleFile(file) {
         setStatus('✘ Plein écran non disponible dans ce navigateur.', true));
     });
     document.addEventListener('fullscreenchange', setFsLabel);
+    // Hauteur des cadres en plein écran : l'espace réellement disponible
+    // sous la barre de vues et le titre de section (mesuré après relayout,
+    // d'où le requestAnimationFrame — la règle CSS calc(100vh - 6rem) était
+    // une approximation fausse dès que la barre de vues passe sur 2 lignes).
+    const viewContainers = {
+      tree: document.getElementById('tree-container'),
+      chrono: document.getElementById('timeline-container'),
+    };
+    function sizeViewContainers() {
+      const fs = document.fullscreenElement != null;
+      for (const [name, cont] of Object.entries(viewContainers)) {
+        if (fs) {
+          if (viewSections[name].hidden) continue;   // pas de mise en page si masqué
+          const top = cont.getBoundingClientRect().top;
+          cont.style.height = Math.max(window.innerHeight - top - 12, 240) + 'px';
+        } else {
+          cont.style.height = '';   // retour au CSS / hauteur calculée par la vue
+        }
+      }
+    }
+    function onFrameResize() {
+      sizeViewContainers();
+      if (document.fullscreenElement != null) {
+        // réajuster le zoom de la vue active au nouveau cadre
+        (activeView === 'tree' ? treeApi : timelineApi).reset();
+      } else if (currentRootId) {
+        timelineApi.update(currentRootId);   // la frise recalcule sa hauteur
+      }
+    }
+    document.addEventListener('fullscreenchange',
+      () => requestAnimationFrame(onFrameResize));
+    window.addEventListener('resize',
+      () => { if (document.fullscreenElement != null) requestAnimationFrame(onFrameResize); });
     const genUpSel = document.getElementById('gen-up');
     const genDownSel = document.getElementById('gen-down');
     const btnReset = document.getElementById('btn-reset');
@@ -204,6 +237,10 @@ async function handleFile(file) {
       activeView = name;
       viewBtns.forEach((b) => b.classList.toggle('active', b.dataset.view === name));
       for (const [k, s] of Object.entries(viewSections)) s.hidden = k !== name;
+      if (document.fullscreenElement != null) {
+        sizeViewContainers();   // en plein écran, le cadre doit être retaillé
+        if (currentRootId) (activeView === 'tree' ? treeApi : timelineApi).reset();
+      }
     }
     viewBtns.forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
     btnReset.addEventListener('click', () =>
