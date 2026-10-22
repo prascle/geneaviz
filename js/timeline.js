@@ -21,7 +21,7 @@
  */
 import * as d3 from 'd3';
 import { logger } from './logger.js';
-import { siblingIds } from './edits.js';
+import { siblingIds, editPillColors, PILL_BASE_COLOR } from './edits.js';
 
 const log = logger('timeline');
 
@@ -74,6 +74,8 @@ function familySet(index, person) {
 export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelectPerson, onContextPerson, getEdits }) {
   container.innerHTML = '';
   let currentRootId = null;
+  let markEdited = false;            // lignes créées pendant une édition → contour
+  let markPill = PILL_BASE_COLOR;   // couleur de pastille courante (édition)
 
   const svg = d3.select(container).append('svg').attr('width', '100%').attr('height', '100%');
   const gZoom = svg.append('g');
@@ -244,7 +246,9 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     if (!p) return null;
     const l = lifeYears(p, nowYear);
     if (!l) return null;
-    const row = { id: p.id, person: p, gen: node.gen, ...l };
+    const row = { id: p.id, person: p, gen: node.gen,
+                  edited: markEdited,
+                  pill: [markEdited ? markPill : PILL_BASE_COLOR], ...l };
     if (p.sex === 'M' && node.rows.length) node.rows.unshift(row);
     else node.rows.push(row);
     node.h = node.rows.length * ROW_H + (node.rows.length - 1) * GAP_ROW;
@@ -318,7 +322,9 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         if (!id || seen.has(id) || !index.getIndividual(id)) return null;
         seen.add(id);
         const l = lifeYears(index.getIndividual(id), nowYear);
-        return l ? { id, person: index.getIndividual(id), gen, ...l } : null;
+        return l ? { id, person: index.getIndividual(id), gen,
+                     edited: markEdited,
+                     pill: [markEdited ? markPill : PILL_BASE_COLOR], ...l } : null;
       };
       unit.upRow = mkRow(fam.husband);     // père : au-dessus de l'enfant
       unit.downRow = mkRow(fam.wife);       // mère : en dessous
@@ -368,6 +374,13 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     placed = [];
     if (!rootId || !index.getIndividual(rootId)) return;
     const nowYear = new Date().getFullYear();
+
+    // couleurs de pastille (M6d) : base = bleu, une couleur vive par pivot
+    const pillOf = editPillColors(getEdits ? getEdits() : []);
+    /** Empile une bande de couleur sur la pastille d'une ligne existante. */
+    const addPillBand = (row, color) => {
+      if (row && !row.pill.includes(color)) row.pill.push(color);
+    };
 
     // ---------- descendants : construction + placement ----------
     const down = buildDown(rootId, 0, new Set());
@@ -428,8 +441,13 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         const pivRow = rowMap.get(e.pivot);
         if (!pivRow) continue;
         const seen = new Set([...rowMap.keys()]);
+        markEdited = true;
+        markPill = pillOf(e.pivot);
         const units = buildUpAncestors(e.pivot, 0, seen, e.depth, pivRow.gen);
         placeAncestors(units, pivRow);
+        addPillBand(pivRow, markPill);
+        markEdited = false;
+        markPill = PILL_BASE_COLOR;
         const collect = (u) => {
           for (const r of [u.upRow, u.downRow]) {
             if (r && !rowMap.has(r.id)) { rowMap.set(r.id, r); allRows.push(r); }
@@ -449,7 +467,12 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         if (!pivRow) continue;
         const seen = new Set([...rowMap.keys()]);
         seen.delete(e.pivot);
+        markEdited = true;
+        markPill = pillOf(e.pivot);
         const node = buildDown(e.pivot, 0, seen, e.depth, pivRow.gen);
+        markEdited = false;
+        addPillBand(pivRow, markPill);
+        markPill = PILL_BASE_COLOR;
         // nouveaux conjoints du pivot : sous sa ligne (solveur)
         let y = pivRow.y + ROW_H + GAP_ROW;
         for (const r of node.rows) {
@@ -486,6 +509,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         const pivRow = rowMap.get(e.pivot);
         const pivPerson = index.getIndividual(e.pivot);
         if (!pivRow || !pivPerson) continue;
+        markPill = pillOf(e.pivot);
+        addPillBand(pivRow, markPill);
         // parents du pivot : unité existante (déjà liée) ou ajoutée ici
         let parentsUnit = findAncUnit(ancUnits, e.pivot);
         if (!parentsUnit) {
@@ -496,7 +521,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
               if (!id || rowMap.has(id) || !index.getIndividual(id)) return null;
               const l = lifeYears(index.getIndividual(id), nowYear);
               return l ? { id, person: index.getIndividual(id),
-                           gen: pivRow.gen - 1, edited: true, ...l } : null;
+                           gen: pivRow.gen - 1, edited: true,
+                           pill: [markPill], ...l } : null;
             };
             const u = { childId: e.pivot,
                         marr: fam.marriage.value?.year ?? null,
@@ -521,7 +547,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
           const kp = index.getIndividual(k);
           const unit = { personId: k, rows: [], smarr: null };
           const kl = lifeYears(kp, nowYear);
-          if (kl) unit.rows.push({ id: k, person: kp, gen: pivRow.gen, edited: true, ...kl });
+          if (kl) unit.rows.push({ id: k, person: kp, gen: pivRow.gen, edited: true, pill: [markPill], ...kl });
           for (const sfid of kp.familyAsSpouse) {
             const sf = index.getFamily(sfid);
             if (!sf) continue;
@@ -530,7 +556,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
             const sp = index.getIndividual(sid);
             const sl = lifeYears(sp, nowYear);
             if (!sl) continue;
-            const srow = { id: sid, person: sp, gen: pivRow.gen, edited: true, ...sl };
+            const srow = { id: sid, person: sp, gen: pivRow.gen, edited: true, pill: [markPill], ...sl };
             if (sp.sex === 'M') unit.rows.unshift(srow); else unit.rows.push(srow);
             if (unit.smarr == null) unit.smarr = sf.marriage.value?.year ?? null;
           }
@@ -551,6 +577,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
           cursor = y + h + BAND_GAP;
           sibPlacements.push({ unit, parentsUnit });
         }
+        markPill = PILL_BASE_COLOR;
         e._done = true; changed = true;
       }
 
@@ -736,8 +763,25 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         return cls.filter(Boolean).join(' ');
       });
 
-    sel.filter((b) => Math.max(X(b.t2) - X(b.t1), MIN_BOX_W) > 34).append('text')
-      .attr('x', 3).attr('y', ROW_H / 2 - 1)
+    // pastille(s) de famille / branche (M6d) : petite bande verticale sur
+    // le bord droit de la boîte, une bande horizontale par couleur
+    sel.each(function (b) {
+      const colors = b.pill ?? [PILL_BASE_COLOR];
+      const g = d3.select(this);
+      const w = Math.max(X(b.t2) - X(b.t1), MIN_BOX_W);
+      const ph = ROW_H - 8;
+      const bh = ph / colors.length;
+      for (let i = 0; i < colors.length; i++) {
+        g.append('rect')
+          .attr('x', w - 6).attr('y', 2 + i * bh)
+          .attr('width', 4).attr('height', bh)
+          .attr('rx', 1.5)
+          .attr('fill', colors[i])
+          .style('pointer-events', 'none');
+      }
+    });
+
+    sel.filter((b) => Math.max(X(b.t2) - X(b.t1), MIN_BOX_W) > 34).append('text')      .attr('x', 3).attr('y', ROW_H / 2 - 1)
       .text((b) => {
         const w = Math.max(X(b.t2) - X(b.t1), MIN_BOX_W);
         const date = ' ' + b.t1 + (b.alive ? '→' : '–' + +b.t2);
