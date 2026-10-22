@@ -322,12 +322,16 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     C.set(0, 0);
     for (let g = 1; g <= downGen; g++) {
       if (!maxSub.has(g) || C.get(g - 1) === undefined) continue;
+      // le HAUT de la bande courante (sous-ligne max — l'aîné s'y trouve)
+      // doit rester à BAND_GAP sous le bas de la bande au-dessus
       const bottomPrev = C.get(g - 1) + maxSub.get(g - 1) * SUB_H - BAR_H / 2;
-      C.set(g, bottomPrev - BAND_GAP - BAR_H / 2);
+      C.set(g, bottomPrev - BAND_GAP - BAR_H / 2 - maxSub.get(g) * SUB_H);
     }
     for (let g = -1; g >= -upGen; g--) {
       if (!maxSub.has(g) || C.get(g + 1) === undefined) continue;
-      const topNext = C.get(g + 1) + BAR_H / 2;
+      // le BAS de la bande courante (sous-ligne 0) doit rester à BAND_GAP
+      // au-dessus du HAUT de la bande en dessous
+      const topNext = C.get(g + 1) + maxSub.get(g + 1) * SUB_H + BAR_H / 2;
       C.set(g, topNext + BAND_GAP + BAR_H / 2);
     }
     for (const r of rows.values()) r.y = (C.get(r.gen) ?? 0) + r.sub * SUB_H;
