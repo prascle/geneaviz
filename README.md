@@ -42,6 +42,12 @@ chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
   (filiations, crochets d'union, bus de fratrie) est générée depuis les positions
   finales : les liens sont logiques (références aux cartes) et suivent leurs
   cartes.
+- M6d — pastilles de famille / branche : chaque individu porte une pastille
+  colorée sur le bord droit de sa carte (arbre) ou de sa boîte de vie (chrono).
+  Graphe de base = bleu ; chaque édition introduit une couleur vive par pivot
+  (même couleur pour toutes les éditions d'un même pivot) ; le pivot empile
+  une bande par édition — sa pastille multi-bandes le distingue sans badge
+  dédié.
 
 ## Utilisation
 
@@ -53,8 +59,9 @@ glisser = déplacement. Cliquer un individu affiche son détail dans le panneau.
 **Clic droit** sur un individu : détail, « Définir comme racine », et éditions
 d'affichage M6 — ajouter/retirer sa fratrie, ses ascendants ou ses descendants
 (nombre de générations libre), de façon récursive sur tout individu affiché ;
-les branches ajoutées portent un marquage distinctif et ne modifient jamais le
-GEDCOM. Le bouton ⛶ bascule le plein écran.
+les branches ajoutées portent un marquage distinctif (hachures + pastille
+  colorée, une couleur par pivot d'édition ; le pivot empile une bande par
+  édition sur sa pastille) et ne modifient jamais le GEDCOM. Le bouton ⛶ bascule le plein écran.
 
 Niveau de trace : ajouter `?log=DEBUG` à l'URL (ou `localStorage.setItem('genea:logLevel','DEBUG')`).
 
