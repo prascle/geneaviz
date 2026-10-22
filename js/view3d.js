@@ -29,8 +29,8 @@ const YEAR_W = 8;        // largeur d'une année
 const MIN_BAR_W = 26;    // largeur minimale d'une barre
 const BAR_H = 15;        // épaisseur verticale (3× — futur paramètre du panneau M7b)
 const BAR_D = 8;         // profondeur (oZ)
-const LEVEL_H = 56;      // hauteur d'une génération (oY)
 const SUB_H = BAR_H + 5; // pas intra-génération : au moins une barre + un espace
+const BAND_GAP = 18;      // écart vertical entre bandes de générations
 const TIME_MARGIN = Math.ceil(MIN_BAR_W / YEAR_W) + 1; // marge temporelle anti-collision (années)
 const LINK_COL = 0x94a3b8;
 const MARR_COL = 0xb45309;
@@ -165,14 +165,21 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   }
 
   /**
-   * Calcule le layout 2D (oX = temps, oY = générations) du graphe de base :
-   * bandes de générations, conjoints empilés dans la bande, anti-collision
-   * temporelle par sous-lignes, ascendants symétriques au-dessus.
+   * Calcule le layout 2D (oX = temps, oY = générations) du graphe de base,
+   * avec les mêmes conventions que la vue chronologique :
+   *  - descendants : couple empilé (mari au-dessus de l'épouse), enfants
+   *    dans la bande du dessous rangés par naissance en descendant (l'aîné
+   *    le plus proche du couple), anti-collision temporelle par sous-lignes ;
+   *  - ascendants : chaque couple de parents centré sur la ligne de son
+   *    enfant, le père au-dessus de la mère, récursivement ;
+   *  - en fin de calcul, chaque bande de génération reçoit exactement la
+   *    hauteur nécessaire (étagement dynamique : plus de chevauchement
+   *    entre bandes, même avec beaucoup de sous-lignes).
    */
   function layout(rootId) {
     const nowYear = new Date().getFullYear();
-    const rows = new Map();   // id -> { id, person, gen, sub, t1, t2, est, alive, x1, x2, y }
-    const links = [];         // { type: 'marr', x, y1, y2, ids } | { type: 'fil', x, yFrom, child, ids }
+    const rows = new Map();   // id -> { id, person, gen, sub, entry, t1, t2, est, alive, x1, x2, y }
+    const links = [];         // { type: 'marr', x, rows, ids } | { type: 'fil', x, fromRows, child, ids }
     const bands = new Map();  // gen -> [{ sub, t1, t2 }]
     const seen = new Set();
 
@@ -192,15 +199,22 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       if (!l) return null;
       const sub = freeSub(gen, l.t1, l.t2, after);
       if (!bands.has(gen)) bands.set(gen, []);
-      bands.get(gen).push({ sub, t1: l.t1, t2: l.t2 });
+      const entry = { sub, t1: l.t1, t2: l.t2 };
+      bands.get(gen).push(entry);
       const row = {
-        id: p.id, person: p, gen, sub, ...l,
+        id: p.id, person: p, gen, sub, entry, ...l,
         x1: l.t1 * YEAR_W, x2: l.t2 * YEAR_W,
-        y: -(gen * LEVEL_H) + sub * SUB_H,
+        y: sub * SUB_H,   // relatif à la bande ; absolu fixé en fin de layout
         pill: [PILL_BASE_COLOR],   // M7a : graphe de base (plans M7b ensuite)
       };
       rows.set(p.id, row);
       return row;
+    };
+    /** Échange les sous-lignes de deux membres d'un couple (mari au-dessus). */
+    const swapSubs = (rowA, rowB) => {
+      [rowA.sub, rowB.sub] = [rowB.sub, rowA.sub];
+      [rowA.entry.sub, rowB.entry.sub] = [rowB.entry.sub, rowA.entry.sub];
+      [rowA.y, rowB.y] = [rowB.y, rowA.y];
     };
     /** Année de mariage (heuristique : moy. naissances + 25 ans). */
     const marrYear = (fam, rs) => fam.marriage.value?.year
@@ -227,17 +241,26 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
           srow = placeRow(index.getIndividual(sid), gen, row.sub + 1);
         }
         const m = marrYear(fam, [row, srow].filter(Boolean));
+        // convention frise : le mari au-dessus de l'épouse
+        if (srow) {
+          const spouse = index.getIndividual(sid);
+          const pIsHusband = p.sex === 'M'
+            || (p.sex !== 'F' && spouse && spouse.sex === 'F');
+          if (pIsHusband ? srow.y > row.y : srow.y < row.y) swapSubs(row, srow);
+        }
         if (m != null && srow) {
-          links.push({ type: 'marr', x: m * YEAR_W, y1: row.y, y2: srow.y,
+          links.push({ type: 'marr', x: m * YEAR_W, rows: [row, srow],
                        ids: [p.id, sid].filter(Boolean) });
         }
+        // aîné·e le/la plus proche du couple : on place du plus jeune au plus
+        // âgé·e (sub 0 = bas de la bande = le plus loin du couple)
         const kids = fam.children.filter((c) => c && !seen.has(c))
           .map((c) => ({ c, y: index.getIndividual(c)?.birth.value?.year ?? 9999 }))
-          .sort((a, b) => a.y - b.y);
+          .sort((a, b) => b.y - a.y);
         for (const { c } of kids) {
           if (!index.getIndividual(c)) continue;
           links.push({ type: 'fil', x: (m ?? row.t1 + 25) * YEAR_W,
-                       yFrom: srow ? (row.y + srow.y) / 2 : row.y,
+                       fromRows: [row, srow].filter(Boolean),
                        child: c, ids: [p.id, sid, c].filter(Boolean) });
           down(index.getIndividual(c), gen + 1);
         }
@@ -253,25 +276,26 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         const g = gen - 1;
         if (g < -upGen) continue;
         let frow = null, mrow = null;
-        if (fam.husband && !seen.has(fam.husband)) {
-          seen.add(fam.husband);
-          frow = placeRow(index.getIndividual(fam.husband), g,
-                          Math.max(0, (childRow?.sub ?? 0) - 1));
-        }
+        // mère d'abord, père juste au-dessus (convention frise)
         if (fam.wife && !seen.has(fam.wife)) {
           seen.add(fam.wife);
           mrow = placeRow(index.getIndividual(fam.wife), g,
-                          (frow?.sub ?? childRow?.sub ?? 0) + 1);
+                          Math.max(0, (childRow?.sub ?? 0) - 1));
+        }
+        if (fam.husband && !seen.has(fam.husband)) {
+          seen.add(fam.husband);
+          frow = placeRow(index.getIndividual(fam.husband), g,
+                          (mrow?.sub ?? Math.max(0, (childRow?.sub ?? 0) - 1)) + 1);
         }
         if (!frow && !mrow) continue;
         const m = marrYear(fam, [frow, mrow].filter(Boolean));
         if (m != null && frow && mrow) {
-          links.push({ type: 'marr', x: m * YEAR_W, y1: frow.y, y2: mrow.y,
+          links.push({ type: 'marr', x: m * YEAR_W, rows: [frow, mrow],
                        ids: [fam.husband, fam.wife].filter(Boolean) });
         }
         if (childRow) {
           links.push({ type: 'fil', x: m * YEAR_W,
-                       yFrom: frow && mrow ? (frow.y + mrow.y) / 2 : (frow ?? mrow).y,
+                       fromRows: [frow, mrow].filter(Boolean),
                        child: p.id,
                        ids: [fam.husband, fam.wife, p.id].filter(Boolean) });
         }
@@ -286,6 +310,28 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     placeRow(root, 0);
     down(root, 0, rows.get(rootId));
     up(root, 0, rows.get(rootId));
+
+    // ---------- étagement dynamique des bandes ----------
+    // Chaque bande reçoit la hauteur nécessaire à ses sous-lignes ; les
+    // bandes voisines sont séparées par BAND_GAP (plus de chevauchement).
+    const maxSub = new Map();
+    for (const [gen, list] of bands) {
+      maxSub.set(gen, list.reduce((mx, b) => Math.max(mx, b.sub), 0));
+    }
+    const C = new Map();   // gen -> y de la sous-ligne 0 de la bande
+    C.set(0, 0);
+    for (let g = 1; g <= downGen; g++) {
+      if (!maxSub.has(g) || C.get(g - 1) === undefined) continue;
+      const bottomPrev = C.get(g - 1) + maxSub.get(g - 1) * SUB_H - BAR_H / 2;
+      C.set(g, bottomPrev - BAND_GAP - BAR_H / 2);
+    }
+    for (let g = -1; g >= -upGen; g--) {
+      if (!maxSub.has(g) || C.get(g + 1) === undefined) continue;
+      const topNext = C.get(g + 1) + BAR_H / 2;
+      C.set(g, topNext + BAND_GAP + BAR_H / 2);
+    }
+    for (const r of rows.values()) r.y = (C.get(r.gen) ?? 0) + r.sub * SUB_H;
+
     return { rows, links };
   }
 
@@ -446,18 +492,23 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     // ---------- repères de mariage + filiations ----------
     for (const l of links) {
       if (l.type === 'marr') {
+        const [ra, rb] = l.rows;
+        if (!ra || !rb) continue;
         const geo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(l.x, l.y1, 0), new THREE.Vector3(l.x, l.y2, 0)]);
+          new THREE.Vector3(l.x, ra.y, 0), new THREE.Vector3(l.x, rb.y, 0)]);
         const line = new THREE.Line(geo,
           new THREE.LineBasicMaterial({ color: MARR_COL, transparent: true }));
         line.userData = { ids: l.ids, op0: 1 };
         content.add(line);
       } else {
         const cr = rows.get(l.child);
-        if (!cr) continue;
+        if (!cr || !l.fromRows.length) continue;
+        const yFrom = l.fromRows.length === 2
+          ? (l.fromRows[0].y + l.fromRows[1].y) / 2
+          : l.fromRows[0].y;
         const geo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(l.x, l.yFrom, 0),
-          new THREE.Vector3(l.x, (l.yFrom + cr.y) / 2, 0),
+          new THREE.Vector3(l.x, yFrom, 0),
+          new THREE.Vector3(l.x, (yFrom + cr.y) / 2, 0),
           new THREE.Vector3(cr.x1 + 12, cr.y, 0)]);
         const line = new THREE.Line(geo,
           new THREE.LineBasicMaterial({ color: LINK_COL, transparent: true }));
