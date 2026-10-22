@@ -27,10 +27,11 @@ const log = logger('view3d');
 /** Dimensions du monde (unités arbitraires). */
 const YEAR_W = 8;        // largeur d'une année
 const MIN_BAR_W = 26;    // largeur minimale d'une barre
-const BAR_H = 5;         // épaisseur verticale
+const BAR_H = 15;        // épaisseur verticale (3× — futur paramètre du panneau M7b)
 const BAR_D = 8;         // profondeur (oZ)
 const LEVEL_H = 56;      // hauteur d'une génération (oY)
-const SUB_H = 11;        // pas intra-génération (conjoint / anti-collision)
+const SUB_H = BAR_H + 5; // pas intra-génération : au moins une barre + un espace
+const TIME_MARGIN = Math.ceil(MIN_BAR_W / YEAR_W) + 1; // marge temporelle anti-collision (années)
 const LINK_COL = 0x94a3b8;
 const MARR_COL = 0xb45309;
 
@@ -179,7 +180,8 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       const list = bands.get(gen) ?? [];
       let s = Math.max(0, after);
       for (;;) {
-        const busy = list.some((b) => b.sub === s && t1 - 2 <= b.t2 && b.t1 - 2 <= t2);
+        const busy = list.some((b) => b.sub === s
+          && t1 - TIME_MARGIN <= b.t2 && b.t1 - TIME_MARGIN <= t2);
         if (!busy) return s;
         s++;
       }
@@ -325,9 +327,14 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
 
   /** Texture d'étiquette peinte sur les faces de la barre : nom + dates
    *  sur une seule ligne (fond pâle selon le sexe, liseré bleu = racine,
-   *  dates ambre si estimées). */
-  function makeBarTexture(row) {
-    const w = 1024, h = 128;
+   *  dates ambre si estimées). Le canvas respecte l'aspect de la face
+   *  (même échelle px/unité en x et y) : les caractères gardent leurs
+   *  proportions en vue « Frise », quelle que soit la longueur de la
+   *  barre ; le texte est tronqué si la barre est trop courte. */
+  function makeBarTexture(row, wWorld) {
+    const ppu = Math.min(16, 4096 / Math.max(wWorld, 1)); // px par unité monde
+    const w = Math.max(24, Math.round(wWorld * ppu));
+    const h = Math.max(24, Math.round(BAR_H * ppu));
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const g = c.getContext('2d');
@@ -336,23 +343,25 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     g.fillRect(0, 0, w, h);
     if (row.id === currentRootId) {           // liseré bleu autour de la barre racine
       g.strokeStyle = '#2563eb';
-      g.lineWidth = 10;
-      g.strokeRect(5, 5, w - 10, h - 10);
+      g.lineWidth = Math.max(2, Math.round(h * 0.09));
+      g.strokeRect(g.lineWidth / 2, g.lineWidth / 2,
+        w - g.lineWidth, h - g.lineWidth);
     }
     const name = `${(row.person.name.surname || '?').toUpperCase()} ` +
       `${row.person.name.given}`.trim();
     const dates = (row.est ? '≈ ' : '') + row.t1 +
       (row.alive ? ' →' : ' – ' + row.t2);
     g.textBaseline = 'middle';
+    const pad = Math.round(h * 0.22);
     // nom à gauche, dates à droite, sur la même ligne
     g.textAlign = 'left';
-    g.font = 'bold 56px system-ui, sans-serif';
+    g.font = `bold ${Math.round(h * 0.62)}px system-ui, sans-serif`;
     g.fillStyle = '#1f2937';
-    g.fillText(name, 30, h / 2, w * 0.55);
+    g.fillText(name, pad, h / 2, w * 0.58);
     g.textAlign = 'right';
-    g.font = '50px system-ui, sans-serif';
+    g.font = `${Math.round(h * 0.54)}px system-ui, sans-serif`;
     g.fillStyle = row.est ? '#b45309' : '#555';
-    g.fillText(dates, w - 30, h / 2, w * 0.4);
+    g.fillText(dates, w - pad, h / 2, w * 0.38);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
@@ -400,7 +409,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       // étiquette = texture sur les faces de la barre (le fond pâle de la
       // texture remplace la teinte pleine par sexe des débuts de M7a)
       const mat = new THREE.MeshLambertMaterial({
-        color: 0xffffff, map: makeBarTexture(r),
+        color: 0xffffff, map: makeBarTexture(r, w),
         transparent: true, opacity: r.est ? 0.72 : 1 });
       if (r.id === currentRootId) mat.emissive = new THREE.Color(0x1d4ed8);
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, BAR_H, BAR_D), mat);
