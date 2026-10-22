@@ -388,19 +388,22 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       .attr('x', 1).attr('y', 1).attr('rx', 5)
       .style('pointer-events', 'none');
 
-    // pastille(s) de famille / branche (M6d) : petite bande verticale sur
-    // le bord droit, une bande horizontale par couleur (pivot multi-éditions)
+    // pastille(s) de famille / branche (M6d) : bande verticale sur le bord
+    // droit, une bande horizontale par couleur (pivot multi-éditions).
+    // Styles inline obligatoires : le CSS .tree-node rect écrase l'attribut
+    // fill (la pastille resterait blanche).
     sel.each(function (d) {
       const colors = d.pill ?? [PILL_BASE_COLOR];
       const g = d3.select(this);
-      const ph = NODE_H - 12;
+      const ph = NODE_H - 10;
       const bh = ph / colors.length;
       for (let i = 0; i < colors.length; i++) {
         g.append('rect')
-          .attr('x', NODE_W - 9).attr('width', 5)
-          .attr('y', 6 + i * bh).attr('height', bh)
-          .attr('rx', 1.5)
-          .attr('fill', colors[i])
+          .attr('x', NODE_W - 11).attr('width', 8)
+          .attr('y', 5 + i * bh).attr('height', bh)
+          .attr('rx', 2)
+          .style('fill', colors[i])
+          .style('stroke', 'none')
           .style('pointer-events', 'none');
       }
     });

@@ -763,20 +763,22 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
         return cls.filter(Boolean).join(' ');
       });
 
-    // pastille(s) de famille / branche (M6d) : petite bande verticale sur
-    // le bord droit de la boîte, une bande horizontale par couleur
+    // pastille(s) de famille / branche (M6d) : bande verticale sur le bord
+    // droit de la boîte. Styles inline obligatoires : le CSS .tl-box rect
+    // écrase l'attribut fill (la pastille resterait blanche).
     sel.each(function (b) {
       const colors = b.pill ?? [PILL_BASE_COLOR];
       const g = d3.select(this);
       const w = Math.max(X(b.t2) - X(b.t1), MIN_BOX_W);
-      const ph = ROW_H - 8;
+      const ph = ROW_H - 6;
       const bh = ph / colors.length;
       for (let i = 0; i < colors.length; i++) {
         g.append('rect')
-          .attr('x', w - 6).attr('y', 2 + i * bh)
-          .attr('width', 4).attr('height', bh)
+          .attr('x', w - 8).attr('y', 3 + i * bh)
+          .attr('width', 6).attr('height', bh)
           .attr('rx', 1.5)
-          .attr('fill', colors[i])
+          .style('fill', colors[i])
+          .style('stroke', 'none')
           .style('pointer-events', 'none');
       }
     });
