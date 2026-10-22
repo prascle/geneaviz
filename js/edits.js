@@ -39,6 +39,44 @@ export function createEdits() {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* M6d : pastilles de famille / branche                                */
+/* ------------------------------------------------------------------ */
+
+/** Couleur de pastille du graphe de base (tous les individus). */
+export const PILL_BASE_COLOR = '#2563eb';
+
+/** Palette de couleurs vives, une par pivot d'édition (cyclique). */
+const PILL_PALETTE = [
+  '#e11d48', // rose
+  '#f97316', // orange
+  '#059669', // émeraude
+  '#7c3aed', // violet
+  '#0891b2', // cyan
+  '#ca8a04', // jaune doré
+  '#db2777', // fuchsia
+  '#65a30d', // vert lime
+  '#4f46e5', // indigo
+];
+
+/**
+ * Attribue une couleur de pastille par pivot d'édition, dans l'ordre de
+ * création des éditions. Un même pivot garde la même couleur pour toutes
+ * ses éditions (ascendants, descendants, fratrie) ; chaque nouveau pivot
+ * reçoit la couleur suivante de la palette.
+ * @param {Array} edits - liste d'éditions actives (getEdits())
+ * @returns {function(string): string} pivot -> couleur de pastille
+ */
+export function editPillColors(edits) {
+  const byPivot = new Map();
+  for (const e of edits) {
+    if (!byPivot.has(e.pivot)) {
+      byPivot.set(e.pivot, PILL_PALETTE[byPivot.size % PILL_PALETTE.length]);
+    }
+  }
+  return (pivot) => byPivot.get(pivot) ?? PILL_BASE_COLOR;
+}
+
 /**
  * Frères et sœurs d'un individu (ids existants, lui-même exclu).
  * @param {Object} index - index applicatif

@@ -25,7 +25,7 @@
  */
 import * as d3 from 'd3';
 import { logger } from './logger.js';
-import { siblingIds } from './edits.js';
+import { siblingIds, editPillColors, PILL_BASE_COLOR } from './edits.js';
 
 const log = logger('tree');
 
@@ -275,6 +275,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
   container.innerHTML = '';
   let currentRootId = null;
   let markEdited = false;   // cartes créées pendant une édition → hachurées
+  let markPill = PILL_BASE_COLOR;   // couleur de pastille courante (édition)
 
   const svg = d3.select(container).append('svg')
     .attr('width', '100%')
@@ -387,6 +388,26 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       .attr('x', 1).attr('y', 1).attr('rx', 5)
       .style('pointer-events', 'none');
 
+    // pastille(s) de famille / branche (M6d) : bande verticale sur le bord
+    // droit, une bande horizontale par couleur (pivot multi-éditions).
+    // Styles inline obligatoires : le CSS .tree-node rect écrase l'attribut
+    // fill (la pastille resterait blanche).
+    sel.each(function (d) {
+      const colors = d.pill ?? [PILL_BASE_COLOR];
+      const g = d3.select(this);
+      const ph = NODE_H - 10;
+      const bh = ph / colors.length;
+      for (let i = 0; i < colors.length; i++) {
+        g.append('rect')
+          .attr('x', NODE_W - 11).attr('width', 8)
+          .attr('y', 5 + i * bh).attr('height', bh)
+          .attr('rx', 2)
+          .style('fill', colors[i])
+          .style('stroke', 'none')
+          .style('pointer-events', 'none');
+      }
+    });
+
     sel.append('text')
       .attr('class', 'node-name')
       .attr('x', 10).attr('y', 18)
@@ -483,6 +504,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       id: unit.person.id, person: unit.person, ghost: false,
       isRoot: unit.person.id === currentRootId,
       cx: xLeft + NODE_W / 2, cy: rowY(0), edited: markEdited,
+      pill: [markEdited ? markPill : PILL_BASE_COLOR],
     });
 
     let r = 0;
@@ -498,6 +520,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             key: kKey,
             id: 'ghost:' + u.famId, person: null, ghost: true, isRoot: false,
             cx: xLeft + NODE_W / 2, cy: rowY(r), edited: markEdited,
+            pill: [markEdited ? markPill : PILL_BASE_COLOR],
           });
         } else {
           kKey = u.spouseId + '@' + xLeft + ',' + Math.round(rowY(r));
@@ -505,6 +528,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             key: kKey,
             id: u.spouseId, person: index.getIndividual(u.spouseId), ghost: false,
             isRoot: false, cx: xLeft + NODE_W / 2, cy: rowY(r), edited: markEdited,
+            pill: [markEdited ? markPill : PILL_BASE_COLOR],
           });
         }
         lastRowKey = kKey;
@@ -567,6 +591,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         key: k,
         id: n.data.id, person: n.data.person, ghost: false, isRoot: false,
         cx: cardX(n), cy: Y(n), edited: markEdited,
+        pill: [markEdited ? markPill : PILL_BASE_COLOR],
       });
     }
 
@@ -629,6 +654,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
               key: bKey,
               id: 'ghost:' + famId, person: null, ghost: true, isRoot: false,
               cx: cardX(u.a), cy: by, edited: markEdited,
+              pill: [markEdited ? markPill : PILL_BASE_COLOR],
             });
           }
         }
@@ -689,7 +715,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       out.cards.set(rootKey, {
         key: rootKey,
         id: rootId, person: rootPerson, ghost: false, isRoot: true,
-        cx: NODE_W / 2, cy: 0,
+        cx: NODE_W / 2, cy: 0, pill: [PILL_BASE_COLOR],
       });
     }
     if (upGen > 0) placeUp(rootId, out, null, upGen, null, 0, rootKey);
@@ -716,6 +742,13 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
 
     // (M6c) plus besoin de clearColumn : le solveur de collisions unifié
     // écarte toutes les cartes après le placement, toutes passes confondues.
+
+    // couleurs de pastille (M6d) : base = bleu, une couleur vive par pivot
+    const pillOf = editPillColors(getEdits ? getEdits() : []);
+    /** Empile une bande de couleur sur la pastille d'une carte existante. */
+    const addPillBand = (card, color) => {
+      if (card && !card.pill.includes(color)) card.pill.push(color);
+    };
 
     // ---------- branches ajoutées (M6a/M6b) : passes jusqu'à point fixe ----------
     // Une édition peut porter sur un individu introduit par une autre édition
@@ -767,9 +800,12 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             }
           }
           markEdited = true;
+          markPill = pillOf(e.pivot);
           placeUp(e.pivot, out, { cx: pivotCard.cx, cy: pivotCard.cy }, e.depth,
                   shownIds, dy, pivotCard.key);
+          addPillBand(pivotCard, markPill);
           markEdited = false;
+          markPill = PILL_BASE_COLOR;
         } else {
           // descendants du pivot : nouveaux conjoints empilés sous sa pile,
           // enfants dans les colonnes à droite (profondeur e.depth)
@@ -786,6 +822,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             else break;
           }
           markEdited = true;
+          markPill = pillOf(e.pivot);
           const spouseCys = [];
           let sy = bottom + GAP_Y;
           for (const u of unit.unions) {
@@ -796,12 +833,13 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             if (u.ghost) {
               sKey = 'ghost:' + u.famId;
               out.cards.set(sKey, { key: sKey, id: 'ghost:' + u.famId, person: null,
-                ghost: true, isRoot: false, cx: pivotCard.cx, cy, edited: true });
+                ghost: true, isRoot: false, cx: pivotCard.cx, cy, edited: true,
+                pill: [markPill] });
             } else {
               sKey = u.spouseId + '@sib';
               out.cards.set(sKey, { key: sKey, id: u.spouseId,
                 person: index.getIndividual(u.spouseId), ghost: false, isRoot: false,
-                cx: pivotCard.cx, cy, edited: true });
+                cx: pivotCard.cx, cy, edited: true, pill: [markPill] });
             }
             spouseCys.push({ u, cy, key: sKey });
           }
@@ -840,7 +878,9 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
                 ids: [e.pivot, u.spouseId, c.person.id].filter(Boolean) });
             }
           }
+          addPillBand(pivotCard, markPill);
           markEdited = false;
+          markPill = PILL_BASE_COLOR;
         }
         e._done = true; changed = true;
       }
@@ -858,6 +898,8 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         const shown = new Set([...out.cards.values()].map((c) => c.id));
         const sibs = siblingIds(index, e.pivot).filter((k) => !shown.has(k));
         if (!sibs.length) { e._done = true; changed = true; continue; }
+        markPill = pillOf(e.pivot);
+        addPillBand(pivotCard, markPill);
 
         const parentCx = pivotCard.cx - (NODE_W + GAP_X);  // colonne de gauche
 
@@ -890,7 +932,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
               const pk = id + '@sib';
               out.cards.set(pk, {
                 key: pk, id, person: index.getIndividual(id), ghost: false,
-                isRoot: false, cx: parentCx, cy, edited: true,
+                isRoot: false, cx: parentCx, cy, edited: true, pill: [markPill],
               });
               parRows.push({ id, cy, key: pk });
             }
@@ -918,7 +960,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
           const kk = k + '@sib';
           out.cards.set(kk, {
             key: kk, id: k, person: kp, ghost: false, isRoot: false,
-            cx: pivotCard.cx, cy: kcy, edited: true,
+            cx: pivotCard.cx, cy: kcy, edited: true, pill: [markPill],
           });
           if (origin) {
             out.linkSpecs.push({ type: 'bus', origin, targetKey: kk, ids: [k] });
@@ -936,6 +978,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             out.cards.set(sk, {
               key: sk, id: sid, person: index.getIndividual(sid), ghost: false,
               isRoot: false, cx: pivotCard.cx, cy: scy, edited: true,
+              pill: [markPill],
             });
             out.linkSpecs.push({ type: 'pile', aKey: kk, bKey: sk, ids: [k, sid] });
           }
@@ -947,6 +990,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
           out.linkSpecs.push({ type: 'bus', origin, targetKey: pivotCard.key,
                                ids: [e.pivot] });
         }
+        markPill = PILL_BASE_COLOR;
         e._done = true; changed = true;
       }
 
