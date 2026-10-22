@@ -4,13 +4,13 @@
  * Axes : oX = temps (comme la vue chrono), oY = générations (ascendants
  * au-dessus de la racine, descendants en dessous), oZ = profondeur (réservé
  * aux plans des éditions, M7b).
- *  - chaque individu = barre temporelle (naissance → décès, fèche si
+ *  - chaque individu = barre temporelle (naissance → décès, flèche si
  *    vivant présumé), couleurs identiques aux vues 2D (sexe, racine,
- *    dates estinées translucides) ;
- *  - pastille = cube de cooleur à droite de la barre (palette edits.js) ;
+ *    dates estimées translucides) ;
+ *  - pastille = cube de couleur à droite de la barre (palette edits.js) ;
  *  - étiquette = sprite billboard (nom + dates) au-dessus de la barre ;
  *  - liens de filiation / repères de mariage = lignes ;
- *  - grille des années au ­ sol³, presets caméra (frise / dessus /
+ *  - grille des années au « sol », presets caméra (frise / dessus /
  *    perspective), OrbitControls (rotation, zoom, pan).
  * Interactions : clic gauche = détail, clic droit = menu contextuel,
  * double-clic = viser l'individu, survol = surbrillance de famille.
@@ -24,8 +24,8 @@ const log = logger('view3d');
 
 /** Dimensions du monde (unités arbitraires). */
 const YEAR_W = 8;        // largeur d'une année
-const MIN_BAR_W = 26;     // largeur minimale d'une barre
-const BAR_H = 5;        // épaisseur verticale
+const MIN_BAR_W = 26;    // largeur minimale d'une barre
+const BAR_H = 5;         // épaisseur verticale
 const BAR_D = 8;         // profondeur (oZ)
 const LEVEL_H = 56;      // hauteur d'une génération (oY)
 const SUB_H = 11;        // pas intra-génération (conjoint / anti-collision)
@@ -33,7 +33,7 @@ const LINK_COL = 0x94a3b8;
 const MARR_COL = 0xb45309;
 
 /**
- * Ensemble des ids de la ­ famille » d'un individu (surbrillance au survol).
+ * Ensemble des ids de la « famille » d'un individu (surbrillance au survol).
  * @param {Object} index - index applicatif
  * @param {Object} person - individu normalisé
  * @returns {Set<string>}
@@ -60,10 +60,10 @@ function familySet(index, person) {
 /**
  * Initialise la vue 3D.
  * @param {Object} options
- * @param {HTMLElement} options.container - émément hóe hote
+ * @param {HTMLElement} options.container - élément hôte
  * @param {Object} options.index - index applicatif
- * @param {number} [options.upGen=3] - génrérations d'ascendants
- * @param {number} [options.downGen=3] - génrérations de descendants
+ * @param {number} [options.upGen=3] - générations d'ascendants
+ * @param {number} [options.downGen=3] - générations de descendants
  * @param {Function} [options.onSelectPerson] - callback clic gauche
  * @param {Function} [options.onContextPerson] - callback clic droit
  * @param {Function} [options.getEdits] - registre d'éditions (M6/M7b)
@@ -74,11 +74,11 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   container.innerHTML = '';
   let currentRootId = null;
 
-  /* ------------------- spéne ------------------- */
+  /* ------------------- scène ------------------- */
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
-  Object.assig(renderer.domElement.style,
+  Object.assign(renderer.domElement.style,
     { width: '100%', height: '100%', display: 'block' });
   container.appendChild(renderer.domElement);
 
@@ -145,7 +145,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   };
   const hideTip = () => { tipEl.style.display = 'none'; };
 
-  /* -------------------- layout (bandes de générations) ------------------- */
+  /* ------------------- layout (bandes de générations) ------------------- */
 
   /** Bornes d'une vie ; null si aucune date exploitable. */
   function lifeYears(p, nowYear) {
@@ -157,13 +157,13 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       const alive = p.death.status === 'living';
       return { t1: bY, t2: alive ? nowYear : Math.min(bY + 100, nowYear), alive, est };
     }
-    if (dY != null) return { t1: Math.max(dY - 100, 0), t2: dy, alive: false, est: true };
+    if (dY != null) return { t1: Math.max(dY - 100, 0), t2: dY, alive: false, est: true };
     return null;
   }
 
   /**
-   * Calcule le layout 2D (oX = temps, oY = générations) du graphe de base *
-   * bandes de générations, conjoints empilés dans la bande anti-collision
+   * Calcule le layout 2D (oX = temps, oY = générations) du graphe de base :
+   * bandes de générations, conjoints empilés dans la bande, anti-collision
    * temporelle par sous-lignes, ascendants symétriques au-dessus.
    */
   function layout(rootId) {
@@ -293,7 +293,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     bars = [];
   }
 
-  /** Sprite texte génnératique (billboard). */
+  /** Sprite texte générique (billboard). */
   function makeSprite(lines, opts = {}) {
     const w = opts.w ?? 512, h = opts.h ?? 128;
     const c = document.createElement('canvas');
@@ -308,7 +308,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       g.fillText(ln.text, w / 2, y);
     }
     const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGCColorSpace;
+    tex.colorSpace = THREE.SRGBColorSpace;
     const spr = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: tex, transparent: true }));
     spr.scale.set(opts.scaleW ?? 140, opts.scaleH ?? 35, 1);
