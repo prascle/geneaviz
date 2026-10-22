@@ -774,7 +774,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       const bh = ph / colors.length;
       for (let i = 0; i < colors.length; i++) {
         g.append('rect')
-          .attr('x', w - 8).attr('y', 3 + i * bh)
+          .attr('x', w - 8).attr('y', 1 + i * bh)
           .attr('width', 6).attr('height', bh)
           .attr('rx', 1.5)
           .style('fill', colors[i])
