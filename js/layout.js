@@ -534,15 +534,18 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
     }
 
     // branches descendants ajoutées : unions + filiations (M6b)
-    for (const node of extraDownNodes) {
-      const mainRow = rowMap.get(node.pid);
-      if (!mainRow) continue;
-      for (const u of node.unions) {
+    // récursif : le placement (placeDown) descend dans les sous-arbres,
+    // l'émission des liens doit faire de même — sinon les liens des
+    // niveaux 2+ (petits-enfants d'un ajout) ne sont jamais émis
+    const walkExtraDown = (n) => {
+      const mainRow = rowMap.get(n.pid) ?? rowMap.get(n.rows[0]?.id);
+      if (!mainRow) return;
+      for (const u of n.unions) {
         const sr = u.spouseRow && rowMap.has(u.spouseRow.id) ? u.spouseRow : null;
         const marr = u.marr ?? heuristicMarr([mainRow, sr]);
         emitMarr(mainRow, sr, marr, [mainRow.id, sr?.id].filter(Boolean));
       }
-      for (const sub of node.subs) {
+      for (const sub of n.subs) {
         const pu = sub.parentUnion;
         const sr = pu.spouseRow && rowMap.has(pu.spouseRow.id) ? pu.spouseRow : null;
         const marr = pu.marr ?? heuristicMarr([mainRow, sr]);
@@ -551,8 +554,10 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
           emitFil(marr, yFrom, sub.pid,
             [mainRow.id, sr?.id, sub.pid].filter(Boolean));
         }
+        walkExtraDown(sub);
       }
-    }
+    };
+    for (const node of extraDownNodes) walkExtraDown(node);
 
     // ---------- bornes ----------
     let minT = Infinity, maxT = -Infinity, minY = Infinity, maxY = -Infinity;
