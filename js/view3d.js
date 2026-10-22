@@ -8,7 +8,9 @@
  *    vivant présumé), couleurs identiques aux vues 2D (sexe, racine,
  *    dates estimées translucides) ;
  *  - pastille = cube de couleur à droite de la barre (palette edits.js) ;
- *  - étiquette = sprite billboard (nom + dates) au-dessus de la barre ;
+ *  - étiquette = texture texte appliquée sur les faces de la barre (nom +
+ *    dates sur une seule ligne, le long de la barre) ; l'infobulle de survol
+ *    reste le recours quand la texture est trop petite pour être lue ;
  *  - liens de filiation / repères de mariage = lignes ;
  *  - grille des années au « sol », presets caméra (frise / dessus /
  *    perspective), OrbitControls (rotation, zoom, pan).
@@ -202,11 +204,16 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     const marrYear = (fam, rs) => fam.marriage.value?.year
       ?? (rs.length ? Math.round(rs.reduce((s, r) => s + r.t1, 0) / rs.length) + 25 : null);
 
-    /** Descendants : couple dans la bande, enfants à la génération suivante. */
-    const down = (p, gen) => {
-      if (!p || seen.has(p.id) || gen > downGen) return;
-      seen.add(p.id);
-      const row = placeRow(p, gen);
+    /** Descendants : couple dans la bande, enfants à la génération suivante.
+     *  L'individu courant est censé être déjà placé (la racine l'est par
+     *  l'appelant) ; sinon on le place ici. */
+    const down = (p, gen, row = null) => {
+      if (!p || gen > downGen) return;
+      if (!row) {
+        if (seen.has(p.id)) return;
+        seen.add(p.id);
+        row = placeRow(p, gen);
+      }
       if (!row) return;
       for (const fid of p.familyAsSpouse) {
         const fam = index.getFamily(fid);
@@ -275,7 +282,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     if (!root) return { rows, links };
     seen.add(rootId);
     placeRow(root, 0);
-    down(root, 0);
+    down(root, 0, rows.get(rootId));
     up(root, 0, rows.get(rootId));
     return { rows, links };
   }
@@ -316,17 +323,40 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     return spr;
   }
 
-  /** Étiquette d'un individu : nom + dates. */
-  function makeLabel(row) {
-    const name = `${row.person.name.given} ` +
-      `${(row.person.name.surname || '?').toUpperCase()}`.trim();
-    const dates = row.t1 + (row.alive ? ' →' : ' – ' + row.t2) + (row.est ? ' ≈' : '');
-    const spr = makeSprite([
-      { text: name, font: 'bold 46px system-ui, sans-serif', color: '#1f2937', dy: 54 },
-      { text: dates, font: '38px system-ui, sans-serif', color: row.est ? '#b45309' : '#555', dy: 54 },
-    ]);
-    spr.userData.ids = [row.id];
-    return spr;
+  /** Texture d'étiquette peinte sur les faces de la barre : nom + dates
+   *  sur une seule ligne (fond pâle selon le sexe, liseré bleu = racine,
+   *  dates ambre si estimées). */
+  function makeBarTexture(row) {
+    const w = 1024, h = 128;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    const sex = row.person.sex;
+    g.fillStyle = sex === 'M' ? '#dbeafe' : sex === 'F' ? '#fce7f3' : '#eef2f7';
+    g.fillRect(0, 0, w, h);
+    if (row.id === currentRootId) {           // liseré bleu autour de la barre racine
+      g.strokeStyle = '#2563eb';
+      g.lineWidth = 10;
+      g.strokeRect(5, 5, w - 10, h - 10);
+    }
+    const name = `${(row.person.name.surname || '?').toUpperCase()} ` +
+      `${row.person.name.given}`.trim();
+    const dates = (row.est ? '≈ ' : '') + row.t1 +
+      (row.alive ? ' →' : ' – ' + row.t2);
+    g.textBaseline = 'middle';
+    // nom à gauche, dates à droite, sur la même ligne
+    g.textAlign = 'left';
+    g.font = 'bold 56px system-ui, sans-serif';
+    g.fillStyle = '#1f2937';
+    g.fillText(name, 30, h / 2, w * 0.55);
+    g.textAlign = 'right';
+    g.font = '50px system-ui, sans-serif';
+    g.fillStyle = row.est ? '#b45309' : '#555';
+    g.fillText(dates, w - 30, h / 2, w * 0.4);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    return tex;
   }
 
   /** Dessine le graphe pour la racine donnée. */
@@ -367,10 +397,11 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     // ---------- barres + pastilles + étiquettes ----------
     for (const r of rows.values()) {
       const w = Math.max(r.x2 - r.x1, MIN_BAR_W);
-      const col = r.person.sex === 'M' ? 0x93c5fd
-        : r.person.sex === 'F' ? 0xf9a8d4 : 0xe2e8f0;
+      // étiquette = texture sur les faces de la barre (le fond pâle de la
+      // texture remplace la teinte pleine par sexe des débuts de M7a)
       const mat = new THREE.MeshLambertMaterial({
-        color: col, transparent: true, opacity: r.est ? 0.72 : 1 });
+        color: 0xffffff, map: makeBarTexture(r),
+        transparent: true, opacity: r.est ? 0.72 : 1 });
       if (r.id === currentRootId) mat.emissive = new THREE.Color(0x1d4ed8);
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, BAR_H, BAR_D), mat);
       mesh.position.set(r.x1 + w / 2, r.y, 0);
@@ -401,10 +432,6 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         cube.userData = { ids: [r.id], op0: 1 };
         content.add(cube);
       });
-
-      const spr = makeLabel(r);
-      spr.position.set(r.x1 + w / 2, r.y + 17, 0);
-      content.add(spr);
     }
 
     // ---------- repères de mariage + filiations ----------
