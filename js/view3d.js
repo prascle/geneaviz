@@ -157,6 +157,9 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   // enfant, solveur anti-chevauchement et branches d'édition M6a/M6b.
   // La 3D fournit ses métriques en unités monde (barres épaisses) ; une
   // ligne de layout [y, y+BAR_H] correspond exactement à une barre.
+  // ATTENTION : le layout travaille en coordonnées écran (y vers le bas,
+  // comme le SVG de la frise) alors que l'axe oY de Three.js pointe vers
+  // le haut — tout y est donc retourné au moment du dessin (Y = -(y + h/2)).
   const layout = createFamilyLayout({
     index, getEdits, upGen, downGen,
     metrics: { rowH: BAR_H, gapRow: GAP_ROW, bandGap: BAND_GAP },
@@ -256,11 +259,12 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       r.x2 = r.t2 * YEAR_W;
     }
 
-    // bornes du contenu
+    // bornes du contenu (y retourné : oY Three pointe vers le haut)
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const r of rows.values()) {
+      const cy = -(r.y + BAR_H / 2);   // centre de la barre en monde
       minX = Math.min(minX, r.x1); maxX = Math.max(maxX, r.x2);
-      minY = Math.min(minY, r.y); maxY = Math.max(maxY, r.y);
+      minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
     }
 
     // ---------- grille des années au sol ----------
@@ -292,7 +296,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         transparent: true, opacity: r.est ? 0.72 : 1 });
       if (r.id === currentRootId) mat.emissive = new THREE.Color(0x1d4ed8);
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, BAR_H, BAR_D), mat);
-      mesh.position.set(r.x1 + w / 2, r.y + BAR_H / 2, 0);   // ligne [y, y+BAR_H]
+      mesh.position.set(r.x1 + w / 2, -(r.y + BAR_H / 2), 0);   // y retourné
       mesh.userData = { row: r, ids: [r.id], op0: mat.opacity };
       content.add(mesh);
       bars.push(mesh);
@@ -303,7 +307,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
           new THREE.ConeGeometry(BAR_H * 0.9, 10, 12),
           new THREE.MeshBasicMaterial({ color: 0x2563eb }));
         cone.rotation.z = -Math.PI / 2;
-        cone.position.set(r.x2 + 6, r.y + BAR_H / 2, 0);
+        cone.position.set(r.x2 + 6, -(r.y + BAR_H / 2), 0);
         cone.userData = { ids: [r.id], op0: 1 };
         content.add(cone);
       }
@@ -316,7 +320,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         const cube = new THREE.Mesh(
           new THREE.BoxGeometry(4.5, bh, 4.5),
           new THREE.MeshBasicMaterial({ color: new THREE.Color(cHex) }));
-        cube.position.set(r.x2 + 5, r.y + bh / 2 + i * bh, 0);
+        cube.position.set(r.x2 + 5, -(r.y + bh / 2 + i * bh), 0);
         cube.userData = { ids: [r.id], op0: 1 };
         content.add(cube);
       });
@@ -327,8 +331,8 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       const x = l.year * YEAR_W;
       if (l.kind === 'marr') {
         const geo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(x, l.rowA.y + BAR_H / 2, 0),
-          new THREE.Vector3(x, l.rowB.y + BAR_H / 2, 0)]);
+          new THREE.Vector3(x, -(l.rowA.y + BAR_H / 2), 0),
+          new THREE.Vector3(x, -(l.rowB.y + BAR_H / 2), 0)]);
         const line = new THREE.Line(geo,
           new THREE.LineBasicMaterial({ color: MARR_COL, transparent: true }));
         line.userData = { ids: l.ids, op0: 1 };
@@ -336,10 +340,11 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       } else {
         const cr = l.childRow;
         if (!cr) continue;
-        const cy = cr.y + BAR_H / 2;   // centre de la barre enfant
+        const cy = -(cr.y + BAR_H / 2);   // centre de la barre enfant (retourné)
+        const yFrom = -l.yFrom;
         const geo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(x, l.yFrom, 0),
-          new THREE.Vector3(x, (l.yFrom + cy) / 2, 0),
+          new THREE.Vector3(x, yFrom, 0),
+          new THREE.Vector3(x, (yFrom + cy) / 2, 0),
           new THREE.Vector3(cr.x1 + 12, cy, 0)]);
         const line = new THREE.Line(geo,
           new THREE.LineBasicMaterial({ color: LINK_COL, transparent: true }));
@@ -442,7 +447,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   renderer.domElement.addEventListener('dblclick', (ev) => {
     const hit = pick(ev);
     if (hit) {
-      controls.target.set((hit.x1 + hit.x2) / 2, hit.y + BAR_H / 2, 0);
+      controls.target.set((hit.x1 + hit.x2) / 2, -(hit.y + BAR_H / 2), 0);
       controls.update();
     }
   });
