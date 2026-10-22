@@ -13,6 +13,7 @@ import { initSearch } from './search.js';
 import { initSearchBar } from './searchBar.js';
 import { initTree } from './tree.js';
 import { initTimeline } from './timeline.js';
+import { initView3d } from './view3d.js';
 import { formatDate } from './utils.js';
 import { initContextMenu } from './contextmenu.js';
 import { createEdits, siblingIds, baseScope, potentialIds } from './edits.js';
@@ -20,12 +21,14 @@ import { createEdits, siblingIds, baseScope, potentialIds } from './edits.js';
 const log = logger('app');
 let treeApi = null;         // vue arbre combiné
 let timelineApi = null;     // vue chronologique
+let view3dApi = null;       // vue 3D (M7)
 const statusEl = document.getElementById('status');
 const outputEl = document.getElementById('output');
 const searchSection = document.getElementById('search-section');
 const detailSection = document.getElementById('detail-section');
 const treeSection = document.getElementById('tree-section');
 const timelineSection = document.getElementById('timeline-section');
+const view3dSection = document.getElementById('view3d-section');
 const detailsEl = document.getElementById('details');
 
 /**
@@ -72,6 +75,7 @@ async function handleFile(file) {
       window.genea.state = { rootId: id };
       treeApi.update(id);
       timelineApi.update(id);
+      view3dApi.update(id);
     }
 
     /** Rafraîchit les deux vues après une édition (racine inchangée). */
@@ -79,6 +83,7 @@ async function handleFile(file) {
       if (currentRootId) {
         treeApi.update(currentRootId);
         timelineApi.update(currentRootId);
+        view3dApi.update(currentRootId);
       }
     }
 
@@ -150,6 +155,16 @@ async function handleFile(file) {
     window.genea.tree = treeApi;
     window.genea.timeline = timelineApi;
 
+    // ---------- Vue 3D (M7a : squelette du graphe de base) ----------
+    view3dApi = initView3d({
+      container: document.getElementById('view3d-container'),
+      index,
+      onSelectPerson: (id) => showDetails(index, id),   // détail seul, comme la chrono
+      onContextPerson,
+      getEdits: () => edits.all(),
+    });
+    window.genea.view3d = view3dApi;
+
     // ---------- Barre de recherche (M1) ----------
     const container = document.getElementById('search-container');
     container.innerHTML = '';
@@ -181,6 +196,7 @@ async function handleFile(file) {
     const viewContainers = {
       tree: document.getElementById('tree-container'),
       chrono: document.getElementById('timeline-container'),
+      view3d: document.getElementById('view3d-container'),
     };
     function sizeViewContainers() {
       const fs = document.fullscreenElement != null;
@@ -198,7 +214,7 @@ async function handleFile(file) {
       sizeViewContainers();
       if (document.fullscreenElement != null) {
         // réajuster le zoom de la vue active au nouveau cadre
-        (activeView === 'tree' ? treeApi : timelineApi).reset();
+        activeApi().reset();
       } else if (currentRootId) {
         timelineApi.update(currentRootId);   // la frise recalcule sa hauteur
       }
@@ -211,8 +227,11 @@ async function handleFile(file) {
     const genDownSel = document.getElementById('gen-down');
     const btnReset = document.getElementById('btn-reset');
     const viewBtns = [...document.querySelectorAll('.view-btn')];
-    const viewSections = { tree: treeSection, chrono: timelineSection };
+    const viewSections = { tree: treeSection, chrono: timelineSection, view3d: view3dSection };
     let activeView = 'tree';
+    /** API de la vue active (arbre, chrono ou 3D). */
+    const activeApi = () =>
+      activeView === 'tree' ? treeApi : activeView === 'chrono' ? timelineApi : view3dApi;
 
     for (const sel of [genUpSel, genDownSel]) {
       for (let n = 0; n <= 10; n++) {
@@ -229,6 +248,7 @@ async function handleFile(file) {
       const u = Number(genUpSel.value), d = Number(genDownSel.value);
       treeApi.setGenerations(u, d);
       timelineApi.setGenerations(u, d);
+      view3dApi.setGenerations(u, d);
     };
     genUpSel.addEventListener('change', applyGens);
     genDownSel.addEventListener('change', applyGens);
@@ -239,12 +259,11 @@ async function handleFile(file) {
       for (const [k, s] of Object.entries(viewSections)) s.hidden = k !== name;
       if (document.fullscreenElement != null) {
         sizeViewContainers();   // en plein écran, le cadre doit être retaillé
-        if (currentRootId) (activeView === 'tree' ? treeApi : timelineApi).reset();
+        if (currentRootId) activeApi().reset();
       }
     }
     viewBtns.forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
-    btnReset.addEventListener('click', () =>
-      (activeView === 'tree' ? treeApi.reset() : timelineApi.reset()));
+    btnReset.addEventListener('click', () => activeApi().reset());
     document.getElementById('view-bar').hidden = false;
     showView('tree');
 
@@ -262,7 +281,8 @@ Dans la console :
   genea.searchService.search({ surname: 'DUPONT', given: 'je' })
   genea.index.getIndividual('@I1@')
   genea.tree.update('@I1@')   — arbre combiné ascendants/descendants
-  genea.timeline.update('@I1@')   — frise chronologique`;
+  genea.timeline.update('@I1@')   — frise chronologique
+  genea.view3d.update('@I1@')   — vue 3D`;
   } catch (err) {
     log.error('Échec du chargement :', err);
     setStatus(`✘ Erreur : ${err.message}`, true);

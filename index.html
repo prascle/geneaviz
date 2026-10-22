@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>GeneaViz — M6 : branches extensibles (arbre, chronologique)</title>
+<title>GeneaViz — M7a : vue 3D (arbre, chronologique, 3D)</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.4rem; }
@@ -104,6 +104,16 @@
     border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px; }
   .ctx-editor button { padding: .15rem .5rem; border: 1px solid #cbd5e1;
     border-radius: 4px; background: #eff6ff; cursor: pointer; font-size: 13px; }
+
+  /* vue 3D (M7a) : le canvas Three.js remplit le cadre */
+  #view3d-container { overflow: hidden; border: 1px solid #e5e7eb;
+    border-radius: 8px; height: 32rem; background: #fff; position: relative; }
+  #view3d-presets { position: absolute; top: 8px; right: 8px;
+    display: flex; gap: .35rem; z-index: 5; }
+  #view3d-presets button { padding: .15rem .5rem; font-size: 12px;
+    border: 1px solid #cbd5e1; border-radius: 4px; background: #fff;
+    cursor: pointer; }
+  #view3d-presets button:hover { background: #eff6ff; }
 </style>
 <script type="importmap">
 {
@@ -118,7 +128,7 @@
 </script>
 </head>
 <body>
-<h1>GeneaViz — M6 : branches extensibles (arbre, chronologique)</h1>
+<h1>GeneaViz — M7a : vue 3D (arbre, chronologique, 3D)</h1>
 
 <p>
   <label for="file">Fichier GEDCOM :</label>
@@ -141,6 +151,7 @@
   <div id="view-bar" hidden>
     <button type="button" class="view-btn active" data-view="tree">Arbre</button>
     <button type="button" class="view-btn" data-view="chrono">Chronologique</button>
+    <button type="button" class="view-btn" data-view="view3d">3D</button>
     <span class="vsep"></span>
     <label>↑ Ascendants <select id="gen-up"></select></label>
     <label>↓ Descendants <select id="gen-down"></select></label>
@@ -156,6 +167,11 @@
   <section id="timeline-section" hidden>
     <h2>Vue chronologique</h2>
     <div id="timeline-container"></div>
+  </section>
+
+  <section id="view3d-section" hidden>
+    <h2>Vue 3D</h2>
+    <div id="view3d-container"></div>
   </section>
 </div>
 
