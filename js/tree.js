@@ -15,6 +15,10 @@
  *    filiation depuis l'union de ses parents si elle est affichée.
  *  - Fonds selon le sexe (bleu clair homme, rose clair femme, blanc inconnu).
  *    Dates estimées : préfixe « ≈ », cadre en tirets.
+ *  - M6c : solveur de collisions unifié — après le placement (base +
+ *    éditions), les cartes qui se chevauchent sont écartées verticalement,
+ *    puis la géométrie de tous les liens est générée depuis les positions
+ *    finales (liens logiques référençant les cartes).
  *  - Infobulle au survol (détail complet) + surbrillance de la famille
  *    (proches en évidence, reste estompé).
  *  - Réglages (générations, recentrage) pilotés par la barre de vues (app.js).
@@ -154,6 +158,100 @@ function familySet(index, person) {
     fam.children.forEach((c) => c && s.add(c));   // fratrie incluse
   }
   return s;
+}
+
+/* ------------------------------------------------------------------ */
+/* M6c : solveur de collisions unifié + rendu des liens logiques        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Écarte verticalement les cartes qui se chevauchent, colonne par colonne.
+ * Ne pousse que vers le bas : les positions de référence du layout sont
+ * conservées, seules les cartes en collision glissent sous l'existant
+ * (itéré jusqu'à point fixe). Remplace les mécanismes partiels d'avant
+ * M6c (décalage du fan-out up, clearColumn sur la 1re colonne down).
+ * @param {Object} out - {cards: Map<key, card>} (cartes modifiées en place)
+ */
+function solveCollisions(out) {
+  const byCol = new Map();
+  for (const c of out.cards.values()) {
+    const k = Math.round(c.cx);
+    if (!byCol.has(k)) byCol.set(k, []);
+    byCol.get(k).push(c);
+  }
+  let moved = true, guard = 0;
+  while (moved && guard++ < 200) {
+    moved = false;
+    for (const arr of byCol.values()) {
+      arr.sort((a, b) => a.cy - b.cy);
+      for (let i = 1; i < arr.length; i++) {
+        if (arr[i].cy - arr[i - 1].cy < NODE_H + GAP_Y) {
+          arr[i].cy = arr[i - 1].cy + NODE_H + GAP_Y;
+          moved = true;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Génère la géométrie réelle des liens (traits d'union, filiations) à
+ * partir des positions FINALES des cartes (après solveCollisions).
+ * Spécifications logiques :
+ *  - pile    : {aKey, bKey}                 trait vertical individu↔conjoint
+ *  - bracket : {aKey, bKey|null}            crochet d'union de parents
+ *  - fil     : {kind, aKey, bKey, childKey} filiation (bêzier)
+ *  - bus     : {origin:{kind,aKey,bKey}, targetKey} bus de fratrie
+ * @param {Object} out - {cards, linkSpecs}
+ * @returns {{unions: Array, filiation: Array}}
+ */
+function renderLinks(out) {
+  const cards = out.cards;
+  const get = (k) => cards.get(k);
+  const xUof = (a) => a.cx + NODE_W / 2 + GAP_X / 2;
+  const originXY = (o) => {
+    const a = get(o.aKey);
+    const b = o.bKey ? get(o.bKey) : null;
+    if (!a) return null;
+    return {
+      x: o.kind === 'bracket' ? xUof(a) : a.cx + NODE_W / 2,
+      y: b ? (a.cy + b.cy) / 2 : a.cy,
+    };
+  };
+  const unions = [], filiation = [];
+  for (const s of out.linkSpecs) {
+    if (s.type === 'pile') {
+      const a = get(s.aKey), b = get(s.bKey);
+      if (!a || !b) continue;
+      unions.push({ x1: a.cx + NODE_W / 2, y1: a.cy,
+                    x2: a.cx + NODE_W / 2, y2: b.cy, ids: s.ids });
+    } else if (s.type === 'bracket') {
+      const a = get(s.aKey);
+      const b = s.bKey ? get(s.bKey) : null;
+      if (!a) continue;
+      const xU = xUof(a);
+      unions.push({ x1: a.cx + NODE_W / 2, y1: a.cy, x2: xU, y2: a.cy, ids: s.ids });
+      if (b) {
+        unions.push({ x1: b.cx + NODE_W / 2, y1: b.cy, x2: xU, y2: b.cy, ids: s.ids });
+        unions.push({ x1: xU, y1: a.cy, x2: xU, y2: b.cy, ids: s.ids });
+      }
+    } else if (s.type === 'fil') {
+      const a = get(s.aKey), ch = get(s.childKey);
+      const b = s.bKey ? get(s.bKey) : null;
+      if (!a || !ch) continue;
+      const x1 = s.kind === 'bracket' ? xUof(a) : a.cx + NODE_W / 2;
+      const y1 = b ? (a.cy + b.cy) / 2 : a.cy;
+      filiation.push({ d: filiationPath(x1, y1, ch.cx - NODE_W / 2, ch.cy),
+                       ids: s.ids });
+    } else if (s.type === 'bus') {
+      const o = originXY(s.origin);
+      const t = get(s.targetKey);
+      if (!o || !t) continue;
+      filiation.push({ d: `M ${o.x} ${o.y} L ${o.x} ${t.cy}` +
+                            ` L ${t.cx - NODE_W / 2} ${t.cy}`, ids: s.ids });
+    }
+  }
+  return { unions, filiation };
 }
 
 /* ------------------------------------------------------------------ */
@@ -368,7 +466,10 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
 
   /**
    * Place une unité descendante : pile individu+conjoints, filiations,
-   * puis récursion sur les enfants (colonne suivante).
+   * puis récursion sur les enfants (colonne suivante). Les liens sont
+   * émis en « logique » (références aux cartes), la géométrie réelle est
+   * générée après le solveur de collisions (M6c). Retourne la clé de la
+   * carte de l'individu.
    */
   function placeDown(unit, xLeft, yCenter, out) {
     const nRows = unit.rows;
@@ -376,7 +477,9 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
     const top = yCenter - stackH / 2;
     const rowY = (r) => top + NODE_H / 2 + r * STACK_STEP;
 
-    out.cards.set(unit.person.id + '@' + xLeft + ',' + Math.round(rowY(0)), {
+    const key0 = unit.person.id + '@' + xLeft + ',' + Math.round(rowY(0));
+    out.cards.set(key0, {
+      key: key0,
       id: unit.person.id, person: unit.person, ghost: false,
       isRoot: unit.person.id === currentRootId,
       cx: xLeft + NODE_W / 2, cy: rowY(0), edited: markEdited,
@@ -384,31 +487,37 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
 
     let r = 0;
     const origins = [];
+    let lastRowKey = null;
     for (const u of unit.unions) {
       if (u.hasRow) {
         r++;
+        let kKey;
         if (u.ghost) {
-          out.cards.set('ghost:' + u.famId, {
+          kKey = 'ghost:' + u.famId;
+          out.cards.set(kKey, {
+            key: kKey,
             id: 'ghost:' + u.famId, person: null, ghost: true, isRoot: false,
             cx: xLeft + NODE_W / 2, cy: rowY(r), edited: markEdited,
           });
         } else {
-          out.cards.set(u.spouseId + '@' + xLeft + ',' + Math.round(rowY(r)), {
+          kKey = u.spouseId + '@' + xLeft + ',' + Math.round(rowY(r));
+          out.cards.set(kKey, {
+            key: kKey,
             id: u.spouseId, person: index.getIndividual(u.spouseId), ghost: false,
             isRoot: false, cx: xLeft + NODE_W / 2, cy: rowY(r), edited: markEdited,
           });
         }
-        origins.push({ union: u, x: xLeft + NODE_W, y: (rowY(0) + rowY(r)) / 2 });
+        lastRowKey = kKey;
+        origins.push({ union: u, bKey: kKey });
       } else {
-        origins.push({ union: u, x: xLeft + NODE_W, y: rowY(0) });
+        origins.push({ union: u, bKey: null });
       }
     }
-    if (nRows > 1) {
-      out.unions.push({ x1: xLeft + NODE_W, y1: rowY(0),
-                        x2: xLeft + NODE_W, y2: rowY(nRows - 1),
-                        ids: [unit.person.id,
-                  ...unit.unions.filter((u) => u.spouseId)
-                                            .map((u) => u.spouseId)] });
+    if (nRows > 1 && lastRowKey) {
+      out.linkSpecs.push({ type: 'pile', aKey: key0, bKey: lastRowKey,
+        ids: [unit.person.id,
+              ...unit.unions.filter((u) => u.spouseId)
+                            .map((u) => u.spouseId)] });
     }
 
     let acc = yCenter - unit.blockH / 2, first = true;
@@ -418,15 +527,13 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         const yc = acc + c.h / 2;
         acc += c.h; first = false;
         const xChild = xLeft + NODE_W + GAP_X;
-        // la filiation arrive sur la CARTE de l'enfant (1re ligne de sa
-        // pile), pas au milieu de la pile individu+conjoints
-        const yTarget = yc - (c.rows - 1) * STACK_STEP / 2;
-        out.filiation.push({ d: filiationPath(o.x, o.y, xChild, yTarget),
-                             ids: [unit.person.id, o.union.spouseId, c.person.id]
-                               .filter(Boolean) });
-        placeDown(c, xChild, yc, out);
+        const cKey = placeDown(c, xChild, yc, out);
+        out.linkSpecs.push({
+          type: 'fil', kind: 'edge', aKey: key0, bKey: o.bKey, childKey: cKey,
+          ids: [unit.person.id, o.union.spouseId, c.person.id].filter(Boolean) });
       }
     }
+    return key0;
   }
 
   /* ---------- layout ascendant : d3.tree + crochets d'union ---------- */
@@ -437,7 +544,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
    * partant du milieu du crochet. L'origine de chaque filiation est
    * mémorisée (out.filiationOrigin) pour les branches ajoutées (M6).
    */
-  function placeUp(rootId, out, anchor = null, maxGen = upGen, shownIds = null, dy = 0) {
+  function placeUp(rootId, out, anchor = null, maxGen = upGen, shownIds = null, dy = 0, anchorKey = null) {
     const rootCx = anchor ? anchor.cx : NODE_W / 2;
     const rootCy = anchor ? anchor.cy : 0;
     const data = buildAncestorTree(index, rootId, maxGen, shownIds);
@@ -455,7 +562,9 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
 
     for (const n of nodes) {
       if (n.depth === 0) continue;
-      out.cards.set(n.data.id + '@a', {
+      const k = n.data.id + '@a';
+      out.cards.set(k, {
+        key: k,
         id: n.data.id, person: n.data.person, ghost: false, isRoot: false,
         cx: cardX(n), cy: Y(n), edited: markEdited,
       });
@@ -490,8 +599,8 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         const fam = index.getFamily(fid);
         if (fam && (fam.husband === n.data.id || fam.wife === n.data.id)) { famId = fid; break; }
       }
-      const childY = childNode.depth === 0 ? rootCy + dy : Y(childNode);
-      const childLeftX = rootCx - childNode.y - NODE_W / 2;
+      const childKey = childNode.depth === 0
+        ? anchorKey : childNode.data.id + '@a';
 
       const u = famId != null ? ancUnions.get(famId) : null;
       if (u) {
@@ -499,11 +608,13 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         if (drawnEdges.has(edgeKey)) continue;
         drawnEdges.add(edgeKey);
 
-        const xU = cardX(u.a) + NODE_W / 2 + GAP_X / 2;
+        const aKey = u.a.data.id + '@a';
         const ay = Y(u.a);
         let by;
+        let bKey = null;
         if (u.b) {
           by = Y(u.b);
+          bKey = u.b.data.id + '@a';
         } else {
           const fam2 = index.getFamily(famId);
           const other = fam2 ? (fam2.husband === u.a.data.id ? fam2.wife : fam2.husband) : null;
@@ -513,7 +624,9 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             const k = ghostCount.get(u.a.data.id) ?? 0;
             ghostCount.set(u.a.data.id, k + 1);
             by = ay - (k + 1) * STACK_STEP;
-            out.cards.set('ghost:' + famId, {
+            bKey = 'ghost:' + famId;
+            out.cards.set(bKey, {
+              key: bKey,
               id: 'ghost:' + famId, person: null, ghost: true, isRoot: false,
               cx: cardX(u.a), cy: by, edited: markEdited,
             });
@@ -522,20 +635,18 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
         if (!drawnBrackets.has(famId)) {
           drawnBrackets.add(famId);
           const ids = [u.a.data.id, u.b ? u.b.data.id : null].filter(Boolean);
-          out.unions.push({ x1: cardX(u.a) + NODE_W / 2, y1: ay, x2: xU, y2: ay, ids });
-          out.unions.push({ x1: cardX(u.a) + NODE_W / 2, y1: by, x2: xU, y2: by, ids });
-          out.unions.push({ x1: xU, y1: Math.min(ay, by), x2: xU, y2: Math.max(ay, by), ids });
+          out.linkSpecs.push({ type: 'bracket', aKey, bKey, ids });
         }
-        out.filiation.push({ d: filiationPath(xU, (ay + by) / 2, childLeftX, childY),
+        out.linkSpecs.push({ type: 'fil', kind: 'bracket', aKey, bKey, childKey,
                              ids: [u.a.data.id, u.b ? u.b.data.id : null, childNode.data.id]
                                .filter(Boolean) });
-        out.filiationOrigin.set(childNode.data.id, { x: xU, y: (ay + by) / 2 });
+        out.filiationOrigin.set(childNode.data.id, { kind: 'bracket', aKey, bKey });
       } else {
-        out.filiation.push({ d: filiationPath(cardX(n) + NODE_W / 2, Y(n),
-                                             childLeftX, childY),
-                             ids: [n.data.id, childNode.data.id] });
+        const nKey = n.data.id + '@a';
+        out.linkSpecs.push({ type: 'fil', kind: 'edge', aKey: nKey, bKey: null,
+                             childKey, ids: [n.data.id, childNode.data.id] });
         out.filiationOrigin.set(childNode.data.id,
-                                { x: cardX(n) + NODE_W / 2, y: Y(n) });
+                                { kind: 'edge', aKey: nKey, bKey: null });
       }
     }
   }
@@ -564,22 +675,24 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       return;
     }
 
-    const out = { cards: new Map(), unions: [], filiation: [],
-                  filiationOrigin: new Map() };
+    const out = { cards: new Map(), linkSpecs: [], filiationOrigin: new Map() };
 
     let rootDrawn = false;
+    let rootKey = null;
     if (downGen > 0) {
       const unit = buildDownUnit(rootId, 0, new Set());
-      placeDown(unit, 0, (unit.rows - 1) * STACK_STEP / 2, out);
+      rootKey = placeDown(unit, 0, (unit.rows - 1) * STACK_STEP / 2, out);
       rootDrawn = true;
     }
     if (!rootDrawn) {
-      out.cards.set(rootId + '@0,0', {
+      rootKey = rootId + '@0,0';
+      out.cards.set(rootKey, {
+        key: rootKey,
         id: rootId, person: rootPerson, ghost: false, isRoot: true,
         cx: NODE_W / 2, cy: 0,
       });
     }
-    if (upGen > 0) placeUp(rootId, out);
+    if (upGen > 0) placeUp(rootId, out, null, upGen, null, 0, rootKey);
 
     /** Mini-solveur : cy d'une nouvelle carte dans la colonne cx,
      *  en partant du haut topY et en repoussant sous chaque carte
@@ -601,25 +714,8 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       return top + NODE_H / 2;
     };
 
-    /** Décale yc vers le bas pour que le sous-arbre (hauteur h) évite les
-     *  cartes déjà présentes dans la colonne colCx. */
-    const clearColumn = (colCx, yc, h) => {
-      let guard = 0;
-      for (;;) {
-        let need = 0;
-        for (const c of out.cards.values()) {
-          if (Math.abs(c.cx - colCx) >= 1) continue;
-          const cTop = c.cy - NODE_H / 2, cBot = c.cy + NODE_H / 2;
-          const top = yc - h / 2, bot = yc + h / 2;
-          if (top < cBot + GAP_Y && cTop - GAP_Y < bot) {
-            need = Math.max(need, cBot + GAP_Y - top);
-          }
-        }
-        if (need <= 0 || guard++ > 100) break;
-        yc += need;
-      }
-      return yc;
-    };
+    // (M6c) plus besoin de clearColumn : le solveur de collisions unifié
+    // écarte toutes les cartes après le placement, toutes passes confondues.
 
     // ---------- branches ajoutées (M6a/M6b) : passes jusqu'à point fixe ----------
     // Une édition peut porter sur un individu introduit par une autre édition
@@ -671,7 +767,8 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             }
           }
           markEdited = true;
-          placeUp(e.pivot, out, { cx: pivotCard.cx, cy: pivotCard.cy }, e.depth, shownIds, dy);
+          placeUp(e.pivot, out, { cx: pivotCard.cx, cy: pivotCard.cy }, e.depth,
+                  shownIds, dy, pivotCard.key);
           markEdited = false;
         } else {
           // descendants du pivot : nouveaux conjoints empilés sous sa pile,
@@ -695,49 +792,52 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             if (!u.hasRow) continue;
             const cy = nextCy(pivotCard.cx, sy);
             sy = cy + NODE_H / 2 + GAP_Y;
+            let sKey;
             if (u.ghost) {
-              out.cards.set('ghost:' + u.famId, { id: 'ghost:' + u.famId, person: null,
+              sKey = 'ghost:' + u.famId;
+              out.cards.set(sKey, { key: sKey, id: 'ghost:' + u.famId, person: null,
                 ghost: true, isRoot: false, cx: pivotCard.cx, cy, edited: true });
             } else {
-              out.cards.set(u.spouseId + '@sib', { id: u.spouseId,
+              sKey = u.spouseId + '@sib';
+              out.cards.set(sKey, { key: sKey, id: u.spouseId,
                 person: index.getIndividual(u.spouseId), ghost: false, isRoot: false,
                 cx: pivotCard.cx, cy, edited: true });
             }
-            spouseCys.push({ u, cy });
+            spouseCys.push({ u, cy, key: sKey });
           }
           if (spouseCys.length) {
-            out.unions.push({ x1: pivotCard.cx + NODE_W / 2, y1: pivotCard.cy,
-              x2: pivotCard.cx + NODE_W / 2, y2: spouseCys[spouseCys.length - 1].cy,
-              ids: [e.pivot, ...spouseCys.map((s) => s.u.spouseId).filter(Boolean)] });
+            out.linkSpecs.push({
+              type: 'pile', aKey: pivotCard.key,
+              bKey: spouseCys[spouseCys.length - 1].key,
+              ids: [e.pivot,
+                    ...spouseCys.map((s) => s.u.spouseId).filter(Boolean)] });
           }
           // enfants : à droite, empilés vers le bas depuis la hauteur du pivot
+          // (le solveur M6c écarte ensuite ce qui chevauche l'existant)
           let cursorY = pivotCard.cy;
           const xChild = pivotCard.cx + NODE_W / 2 + GAP_X;
           for (const o of spouseCys) {
-            const yFrom = (pivotCard.cy + o.cy) / 2;
             for (const c of o.u.children) {
-              // anti-collision : le sous-arbre passe sous les cartes
-              // déjà présentes dans la colonne des enfants
-              const yc = clearColumn(xChild + NODE_W / 2, cursorY + c.h / 2, c.h);
+              const yc = cursorY + c.h / 2;
               cursorY = yc + c.h / 2 + GAP_Y;
-              const yTarget = yc - (c.rows - 1) * STACK_STEP / 2;
-              out.filiation.push({ d: filiationPath(pivotCard.cx + NODE_W / 2, yFrom,
-                                                     xChild, yTarget),
-                                   ids: [e.pivot, o.u.spouseId, c.person.id].filter(Boolean) });
-              placeDown(c, xChild, yc, out);
+              const cKey = placeDown(c, xChild, yc, out);
+              out.linkSpecs.push({
+                type: 'fil', kind: 'edge', aKey: pivotCard.key, bKey: o.key,
+                childKey: cKey,
+                ids: [e.pivot, o.u.spouseId, c.person.id].filter(Boolean) });
             }
           }
           // unions sans ligne de conjoint mais avec enfants
           for (const u of unit.unions) {
             if (u.hasRow) continue;
             for (const c of u.children) {
-              const yc = clearColumn(xChild + NODE_W / 2, cursorY + c.h / 2, c.h);
+              const yc = cursorY + c.h / 2;
               cursorY = yc + c.h / 2 + GAP_Y;
-              const yTarget = yc - (c.rows - 1) * STACK_STEP / 2;
-              out.filiation.push({ d: filiationPath(pivotCard.cx + NODE_W / 2,
-                                                     pivotCard.cy, xChild, yTarget),
-                                   ids: [e.pivot, u.spouseId, c.person.id].filter(Boolean) });
-              placeDown(c, xChild, yc, out);
+              const cKey = placeDown(c, xChild, yc, out);
+              out.linkSpecs.push({
+                type: 'fil', kind: 'edge', aKey: pivotCard.key, bKey: null,
+                childKey: cKey,
+                ids: [e.pivot, u.spouseId, c.person.id].filter(Boolean) });
             }
           }
           markEdited = false;
@@ -787,28 +887,21 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
               const cy = nextCy(parentCx, top);
               top = cy + NODE_H / 2 + GAP_Y;
               shown.add(id);
-              out.cards.set(id + '@sib', {
-                id, person: index.getIndividual(id), ghost: false,
+              const pk = id + '@sib';
+              out.cards.set(pk, {
+                key: pk, id, person: index.getIndividual(id), ghost: false,
                 isRoot: false, cx: parentCx, cy, edited: true,
               });
-              parRows.push({ id, cy });
+              parRows.push({ id, cy, key: pk });
             }
             if (!parRows.length) continue;
+            origin = { kind: 'bracket', aKey: parRows[0].key,
+                       bKey: parRows.length === 2 ? parRows[1].key : null };
             // crochet d'union étendu jusqu'au bus de filiation (comme dans
             // placeUp) : sinon le bus des enfants reste déconnecté des parents
-            const xU = parentCx + NODE_W / 2 + GAP_X / 2;
-            for (const pr of parRows) {
-              out.unions.push({ x1: parentCx + NODE_W / 2, y1: pr.cy,
-                                x2: xU, y2: pr.cy,
-                                ids: parRows.map((r) => r.id) });
-            }
-            if (parRows.length === 2) {
-              out.unions.push({ x1: xU, y1: parRows[0].cy,
-                                x2: xU, y2: parRows[1].cy,
-                                ids: parRows.map((r) => r.id) });
-            }
-            origin = { x: xU,
-                       y: parRows.reduce((s, r) => s + r.cy, 0) / parRows.length };
+            out.linkSpecs.push({ type: 'bracket', aKey: origin.aKey,
+                                 bKey: origin.bKey,
+                                 ids: parRows.map((r) => r.id) });
             originNew = true;
             break;
           }
@@ -822,16 +915,13 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
           const kp = index.getIndividual(k);
           const kcy = nextCy(pivotCard.cx, cursorY);
           cursorY = kcy + NODE_H / 2 + GAP_Y;
-          out.cards.set(k + '@sib', {
-            id: k, person: kp, ghost: false, isRoot: false,
+          const kk = k + '@sib';
+          out.cards.set(kk, {
+            key: kk, id: k, person: kp, ghost: false, isRoot: false,
             cx: pivotCard.cx, cy: kcy, edited: true,
           });
           if (origin) {
-            out.filiation.push({
-              d: `M ${origin.x} ${origin.y} L ${origin.x} ${kcy}` +
-                 ` L ${pivotCard.cx - NODE_W / 2} ${kcy}`,
-              ids: [k],
-            });
+            out.linkSpecs.push({ type: 'bus', origin, targetKey: kk, ids: [k] });
           }
           let sy = cursorY;
           for (const sfid of kp.familyAsSpouse) {
@@ -842,24 +932,20 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
             const scy = nextCy(pivotCard.cx, sy);
             sy = scy + NODE_H / 2 + GAP_Y;
             shown.add(sid);
-            out.cards.set(sid + '@sib', {
-              id: sid, person: index.getIndividual(sid), ghost: false,
+            const sk = sid + '@sib';
+            out.cards.set(sk, {
+              key: sk, id: sid, person: index.getIndividual(sid), ghost: false,
               isRoot: false, cx: pivotCard.cx, cy: scy, edited: true,
             });
-            out.unions.push({ x1: pivotCard.cx + NODE_W / 2, y1: kcy,
-                              x2: pivotCard.cx + NODE_W / 2, y2: scy,
-                              ids: [k, sid] });
+            out.linkSpecs.push({ type: 'pile', aKey: kk, bKey: sk, ids: [k, sid] });
           }
           cursorY = sy + GAP_Y;
         }
 
         // parents nouvellement ajoutés : bus vers le pivot aussi
         if (origin && originNew) {
-          out.filiation.push({
-            d: `M ${origin.x} ${origin.y} L ${origin.x} ${pivotCard.cy}` +
-               ` L ${pivotCard.cx - NODE_W / 2} ${pivotCard.cy}`,
-            ids: [e.pivot],
-          });
+          out.linkSpecs.push({ type: 'bus', origin, targetKey: pivotCard.key,
+                               ids: [e.pivot] });
         }
         e._done = true; changed = true;
       }
@@ -867,13 +953,20 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
       if (!changed) break;
     }
 
+    // ---------- M6c : solveur de collisions + géométrie des liens ----------
+    // Toutes les cartes sont posées (base + éditions) : on écarte celles
+    // qui se chevauchent, puis on génère les traits depuis les positions
+    // finales (les liens logiques suivent leurs cartes).
+    solveCollisions(out);
+    const { unions, filiation } = renderLinks(out);
+
     gView.selectAll(null)
-      .data(out.filiation)
+      .data(filiation)
       .join('path')
       .attr('class', 'tree-link')
       .attr('d', (d) => d.d);
     gView.selectAll(null)
-      .data(out.unions)
+      .data(unions)
       .join('line')
       .attr('class', 'spouse-link')
       .attr('x1', (d) => d.x1).attr('y1', (d) => d.y1)
@@ -889,7 +982,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
 
     resetView(false);
     log.info('Vue combinée dessinée : ' + out.cards.size + ' carte(s), ' +
-      out.unions.length + ' trait(s) d\'union, ' + upGen + ' gén. ascendants, ' +
+      unions.length + ' trait(s) d\'union, ' + upGen + ' gén. ascendants, ' +
       downGen + ' gén. descendants');
   }
 
