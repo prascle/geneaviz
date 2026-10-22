@@ -1,5 +1,5 @@
 /**
- * app.js — Point d'entrée. Malons M5/M5.1/M6 :
+ * app.js — Point d'entrée. Jalons M5/M5.1/M6 :
  * charger un fichier, indexer, estimer les dates, rechercher un individu,
  * afficher son détail et naviguer entre les vues : arbre combiné (D3) et
  * vue chronologique. Barre de vues partagée : générations, recentrage,
@@ -78,7 +78,7 @@ async function handleFile(file) {
       view3dApi.update(id);
     }
 
-    /** RafraÚchit les deux vues après une édition (racine inchangée). */
+    /** Rafraîchit les deux vues après une édition (racine inchangée). */
     function refreshViews() {
       if (currentRootId) {
         treeApi.update(currentRootId);
@@ -191,8 +191,8 @@ async function handleFile(file) {
     document.addEventListener('fullscreenchange', setFsLabel);
     // Hauteur des cadres en plein écran : l'espace réellement disponible
     // sous la barre de vues et le titre de section (mesuré après relayout,
-    // d'oû le requestAnimationFrame — la règle CSS calc(100vh - 6rem) était
-    // une approximation fausee dès que la barre de vues passe sur 2 lignes).
+    // d'où le requestAnimationFrame — la règle CSS calc(100vh - 6rem) était
+    // une approximation fausse dès que la barre de vues passe sur 2 lignes).
     const viewContainers = {
       tree: document.getElementById('tree-container'),
       chrono: document.getElementById('timeline-container'),
@@ -319,13 +319,13 @@ function showDetails(index, id) {
       : '(inconnu·e)';
     famRows.push(`<tr><td>Famille</td><td>Union avec <strong>${spouseLabel}</strong>`
       + (fam.marriage.value ? ` — mariage ${dateHtml(fam.marriage, '?')}` : '')
-      + (fam.children.length > ` — ${fam.children.length} enfant(s)` : '')
-        + `</td></tr>`);
+      + (fam.children.length ? ` — ${fam.children.length} enfant(s)` : '')
+      + `</td></tr>`);
   }
 
   detailsEl.innerHTML = `<table>
-    <tr><td>Dentiré</td><td><strong>${p.name.surname || '?').toUpperCase()} ${p.name.given}</strong>${p.name.suffix ? ' ' + p.name.suffix : ''}</td></tr>
-    <tr><td>Sexe</td><td>${p.sex === 'M' ? 'Masculin' : p.sex === 'F' ? 'FÕminin' : 'Inconnu'}</td></tr>
+    <tr><td>Identité</td><td><strong>${(p.name.surname || '?').toUpperCase()} ${p.name.given}</strong>${p.name.suffix ? ' ' + p.name.suffix : ''}</td></tr>
+    <tr><td>Sexe</td><td>${p.sex === 'M' ? 'Masculin' : p.sex === 'F' ? 'Féminin' : 'Inconnu'}</td></tr>
     <tr><td>Naissance</td><td>${dateHtml(p.birth, 'vivant·e (présumé)')}</td></tr>
     <tr><td>Décès</td><td>${dateHtml(p.death, 'vivant·e (présumé)')}</td></tr>
     ${famRows.join('')}
