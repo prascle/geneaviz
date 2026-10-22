@@ -23,6 +23,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { logger } from './logger.js';
 import { PILL_BASE_COLOR } from './edits.js';
 import { createFamilyLayout } from './layout.js';
+import { buildTooltipHtml } from './tooltip.js';
 
 const log = logger('view3d');
 
@@ -132,16 +133,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     tipHost.appendChild(tipEl);
   }
   const showTip = (person) => {
-    const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
-      (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const d = (x) => !x.value ? (x.status === 'living' ? 'vivant·e' : '—')
-      : (x.status === 'estimated' ? '≈ ' : '') + x.value.year;
-    tipEl.innerHTML =
-      `<div class="tip-name">${esc((person.name.surname || '?').toUpperCase())}` +
-      ` ${esc(person.name.given)}</div>` +
-      `<div class="tip-dates">naissance ${d(person.birth)}` +
-      ` · décès ${d(person.death)}</div>` +
-      `<div class="tip-id">${esc(person.id)}</div>`;
+    tipEl.innerHTML = buildTooltipHtml(index, person);   // identique à la frise
     tipEl.style.display = 'block';
     tipEl.style.left = '12px';
     tipEl.style.top =
@@ -301,25 +293,28 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       content.add(mesh);
       bars.push(mesh);
 
-      // flèche « vivant·e présumé·e »
+      // flèche « vivant·e présumé·e » : à droite de la pastille (plus
+      // petite que la barre, transparente pour suivre le grisé au survol)
       if (r.alive) {
         const cone = new THREE.Mesh(
-          new THREE.ConeGeometry(BAR_H * 0.9, 10, 12),
-          new THREE.MeshBasicMaterial({ color: 0x2563eb }));
+          new THREE.ConeGeometry(BAR_H * 0.4, 7, 12),
+          new THREE.MeshBasicMaterial({ color: 0x2563eb, transparent: true }));
         cone.rotation.z = -Math.PI / 2;
-        cone.position.set(r.x2 + 6, -(r.y + BAR_H / 2), 0);
+        cone.position.set(r.x2 + 12, -(r.y + BAR_H / 2), 0);
         cone.userData = { ids: [r.id], op0: 1 };
         content.add(cone);
       }
 
-      // pastille(s) : cube(s) de couleur à droite de la barre
+      // pastille(s) : cube(s) de couleur à droite de la barre, à gauche
+      // du cône des vivant·e·s (transparent : suit le grisé au survol)
       const pc = r.pill ?? [PILL_BASE_COLOR];
       const n = pc.length;
       pc.forEach((cHex, i) => {
         const bh = BAR_H / n;
         const cube = new THREE.Mesh(
           new THREE.BoxGeometry(4.5, bh, 4.5),
-          new THREE.MeshBasicMaterial({ color: new THREE.Color(cHex) }));
+          new THREE.MeshBasicMaterial({ color: new THREE.Color(cHex),
+                                        transparent: true }));
         cube.position.set(r.x2 + 5, -(r.y + bh / 2 + i * bh), 0);
         cube.userData = { ids: [r.id], op0: 1 };
         content.add(cube);

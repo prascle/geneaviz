@@ -25,6 +25,7 @@ import * as d3 from 'd3';
 import { logger } from './logger.js';
 import { PILL_BASE_COLOR } from './edits.js';
 import { createFamilyLayout, TL_METRICS } from './layout.js';
+import { buildTooltipHtml } from './tooltip.js';
 
 const log = logger('timeline');
 
@@ -116,37 +117,9 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
        .style('top', Math.max(12, window.innerHeight - h - 12) + 'px');
   };
 
-  /** Contenu HTML de l'infobulle (complet : dates, unions, enfants). */
-  function buildTooltipHtml(p) {
-    const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
-      (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const dHtml = (d) => {
-      if (!d.value) return d.status === 'living' ? 'vivant·e' : '—';
-      return (d.status === 'estimated' ? '≈ ' : '') + d.value.year
-        + (d.estimatedFrom ? ` <small>(${esc(d.estimatedFrom)})</small>` : '');
-    };
-    const rows = [
-      `<div class="tip-name">${esc((p.name.surname || '?').toUpperCase())} ${esc(p.name.given)}</div>`,
-      `<div class="tip-dates">naissance ${dHtml(p.birth)}`
-        + (p.death.status === 'living' ? ' · vivant·e'
-           : ` · décès ${dHtml(p.death)}`) + '</div>',
-    ];
-    for (const famId of p.familyAsSpouse) {
-      const fam = index.getFamily(famId);
-      if (!fam) continue;
-      const sid = fam.husband === p.id ? fam.wife : fam.husband;
-      const sp = sid ? index.getIndividual(sid) : null;
-      rows.push(`<div class="tip-fam">union : ${sp
-        ? `${esc(sp.name.surname.toUpperCase())} ${esc(sp.name.given)}` : 'inconnu·e'}`
-        + (fam.marriage.value ? ` — mariage ${dHtml(fam.marriage)}` : '')
-        + (fam.children.length ? ` — ${fam.children.length} enfant(s)` : '') + '</div>');
-    }
-    rows.push(`<div class="tip-id">${esc(p.id)}</div>`);
-    return rows.join('');
-  }
-
   /** Survol : famille en évidence + code couleur relatif à l'individu
-   *  survolé (g0 = sa génération, g-1 = parents, g1 = enfants). */
+   *  survolé (g0 = sa génération, g-1 = parents, g1 = enfants).
+   *  (Contenu de l'infobulle : module partagé tooltip.js.) */
   function highlightFamily(person) {
     const fam = familySet(index, person);
     const hRow = [...rowMap.values()].find((r) => r.id === person.id);
@@ -301,7 +274,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       if (onSelectPerson) onSelectPerson(b.id);
     })
       .on('pointerover', (event, b) => {
-        tip.html(buildTooltipHtml(b.person)).style('display', 'block');
+        tip.html(buildTooltipHtml(index, b.person)).style('display', 'block');
         positionTip(event);
         highlightFamily(b.person);
       })
