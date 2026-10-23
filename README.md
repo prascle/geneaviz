@@ -4,7 +4,7 @@ Application web 100 % client (JavaScript ES modules + HTML) pour l'exploration d
 généalogiques au format GEDCOM. Trois vues : arbre générationnel (D3),
 chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
 
-## État : jalon M8a — lecture GEDCOM via read-gedcom
+## État : jalon M8b — fiche individu (lecture GEDCOM riche)
 
 - `js/logger.js` — traces module par module, niveaux DEBUG/INFO/WARN/ERROR.
 - `js/utils.js` — parsing/formatage des dates GEDCOM (y compris ABT/BEF/AFT), debounce.
@@ -80,6 +80,23 @@ chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
   inchangés (non-régression vérifiée champ à champ sur un banc de test),
   `index.getGedcom()` expose la sélection racine read-gedcom pour l'extraction
   riche à venir (M8b : fiche individu).
+- M8b — `js/gedcomDetail.js` : fiche individu complète dans un panneau latéral
+  escamotable à droite. Extraction **paresseuse** (à l'ouverture de la fiche,
+  jamais au chargement — les gros fichiers ne ralentissent pas) depuis les
+  nœuds bruts read-gedcom déjà conservés par l'index. Contenu : identité
+  (noms multiples avec type naissance/marié·e/alias, surnom, sexe, xref, date
+  de modification CHAN), événements datés au format complet « 12 janv. 1873 »
+  avec qualificatifs (≈ < >, fourchettes « entre … et … », périodes
+  « de … à … ») et lieux (naissance, baptêmes BAPM/CHR, décès avec cause,
+  sépulture/crémation), professions et résidences datées (FROM/TO), familles
+  (parents avec lien PEDI — adoption, famille d'accueil —, unions avec
+  mariage, divorce et enfants), notes (inline ou records, retours à la ligne
+  conservés), sources (PAGE + titre du record résolu). Ouverture : clic simple
+  sur un individu, entrée « Fiche complète » du menu contextuel, ou bouton du
+  panneau compact ; fermeture ✕ ou Échap ; en plein écran seule la fiche reste
+  visible (cible privilégiée). Infobulle enrichie d'une ligne de contexte
+  (profession, lieux de naissance/décès — `js/tooltip.js` et sa copie dans
+  `js/tree.js`, donc les trois vues).
 
 ## Utilisation
 
@@ -87,8 +104,12 @@ Ouvrir `index.html` dans un navigateur (un simple serveur local suffit, ex. `pyt
 Sélectionner un fichier `.ged`, rechercher un individu (M1) : son détail s'affiche et
 son arbre combiné se dessine (M3). Les nombres de générations d'ascendants et de
 descendants se règlent indépendamment au-dessus de l'arbre ; molette = zoom,
-glisser = déplacement. Cliquer un individu affiche son détail dans le panneau.
-**Clic droit** sur un individu : détail, « Définir comme racine », et éditions
+glisser = déplacement. Cliquer un individu affiche son détail dans le panneau et
+ouvre sa **fiche complète** dans le panneau latéral droit (M8b) : identité,
+événements datés avec lieux, professions, résidences, familles (mariages,
+divorces, parents/enfants, adoption), notes et sources ; fermeture par ✕ ou
+Échap. **Clic droit** sur un individu : détail, « Fiche complète », « Définir
+comme racine », et éditions
 d'affichage M6 — ajouter/retirer sa fratrie, ses ascendants ou ses descendants
 (nombre de générations libre), de façon récursive sur tout individu affiché ;
 les branches ajoutées portent un marquage distinctif (hachures + pastille
@@ -96,9 +117,10 @@ les branches ajoutées portent un marquage distinctif (hachures + pastille
   édition sur sa pastille) et ne modifient jamais le GEDCOM. Le bouton ⛶ bascule le plein écran.
 Le bouton **3D** de la barre de vues active la vue 3D : molette = zoom, glisser =
 rotation, presets caméra (Frise / Dessus / Perspective) en haut à droite du cadre ;
-clic (détail), clic droit (menu contextuel) et double-clic (centrer) y sont
+clic (détail + fiche), clic droit (menu contextuel) et double-clic (centrer) y sont
 fonctionnels comme dans les autres vues, ainsi que le survol (surbrillance de
-famille + infobulle). Les éditions d'affichage s'y matérialisent par des plans
+famille + infobulle enrichie d'une ligne de contexte : profession, lieux de
+naissance/décès). Les éditions d'affichage s'y matérialisent par des plans
 parallèles décalés en profondeur (une couleur par pivot, surface translucide),
 reliés au graphe par des liens en diagonale ; le panneau « Réglages » (sous les
 presets) ajuste l'épaisseur des barres, les écarts et l'échelle du temps.
@@ -114,8 +136,8 @@ Après chargement d'un fichier :
 - `genea.index.getIndividual(id)` — fiche individuelle complète.
 - `genea.index.searchByName('DUPONT', 'jean')` — recherche par patronyme/prénom (M1).
 - `genea.index.stats()` — statistiques de chargement et d'estimation.
-- `genea.index.getGedcom()` — sélection read-gedcom racine (socle de la fiche
-  individu M8b : événements complets, lieux, professions, notes, sources).
+- `genea.index.getGedcom()` — sélection read-gedcom racine (les nœuds bruts
+  conservés dans l'index portent les mêmes valeurs).
 - `genea.tree.update(id)` — recentre l'arbre combiné sur un individu.
 - `genea.timeline.update(id)` — reconstruit la frise chronologique sur un individu.
 - `genea.view3d.update(id)` — reconstruit la vue 3D sur un individu.
@@ -132,5 +154,9 @@ Après chargement d'un fichier :
   encodages, validation stricte de la structure (HEAD en tête, TRLR en fin,
   imbrication des niveaux, pointeurs uniques), erreurs explicites. Les dates
   restent analysées par `js/utils.js` (comportement des vues et de l'estimateur
-  strictement inchangé) ; l'extraction riche des champs (dates complètes,
-  lieux, professions, notes, sources) pour la fiche individu est prévue en M8b.
+  strictement inchangé).
+- La fiche individu (M8b) n'effectue aucune extraction au chargement :
+  `js/gedcomDetail.js` est un module pur qui lit les nœuds bruts read-gedcom
+  conservés par l'index (`person.raw`, `fam.raw` — valeurs CONT/CONC déjà
+  fusionnées) uniquement à l'ouverture, et résout les notes et sources
+  référencées par `@xref@` via la sélection racine (`index.getGedcom()`).
