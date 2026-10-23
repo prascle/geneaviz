@@ -16,17 +16,22 @@
  *  - étiquette = texture texte appliquée sur les faces de la barre (nom +
  *    dates sur une seule ligne, le long de la barre) ; l'infobulle de survol
  *    reste le recours quand la texture est trop petite pour être lue ;
- *  - liens de filiation / repères de mariage = lignes (diagonales entre
- *    plans, M7b) ;
+ *  - liens de filiation / repères de mariage = lignes épaisses (Line2/
+ *    LineMaterial, M9a : épaisseur réglable, grossies au survol, en
+ *    diagonale entre plans) ;
  *  - grille des années au « sol », presets caméra (frise / dessus /
  *    perspective), OrbitControls (rotation, zoom, pan) ;
- *  - panneau de réglages (M7b) : épaisseur des barres, écarts couple /
- *    couple-enfants, échelle du temps.
+ *  - panneau de réglages (M7b/M9a) : épaisseur des barres, écarts couple /
+ *    couple-enfants, échelle du temps, épaisseur des liens, brouillard
+ *    de profondeur (bornes recalculées par rapport à la caméra).
  * Interactions : clic gauche = détail, clic droit = menu contextuel,
  * double-clic = viser l'individu, survol = surbrillance de famille.
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { logger } from './logger.js';
 import { PILL_BASE_COLOR, editPillColors } from './edits.js';
 import { createFamilyLayout } from './layout.js';
@@ -41,12 +46,14 @@ const LINK_COL = 0x94a3b8;
 const MARR_COL = 0xb45309;
 const PLANE_GAP = 60;    // écart entre plans d'édition le long de oZ (M7b)
 
-/** Réglages utilisateur (panneau M7b, ajustables à l'exécution). */
+/** Réglages utilisateur (panneau M7b/M9a, ajustables à l'exécution). */
 const settings = {
   barH: 15,     // épaisseur verticale d'une barre (métrique layout rowH)
   gapRow: 5,    // écart entre les barres d'un couple (métrique layout)
   bandGap: 18,  // écart entre un couple et ses enfants (métrique layout)
   yearW: 8,     // largeur d'une année (échelle du temps)
+  linkW: 2,     // épaisseur des liens de mariage/filiation (px CSS)
+  fog: 0,       // brouillard de profondeur, 0 (off) à 100 (fort)
 };
 
 /**
@@ -120,6 +127,43 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   /** Barres interactives (picking). */
   let bars = [];
 
+  /** Matériaux des liens épais (Line2) : résolution à suivre au resize. */
+  const linkMats = [];
+
+  /** Largeur d'un lien en pixels du tampon de rendu (px CSS × pixelRatio). */
+  const linkWidth = () => settings.linkW * renderer.getPixelRatio();
+
+  /** Crée un lien épais (mariage ou filiation, polyligne quelconque). */
+  function makeLink(points, color) {
+    const geo = new LineGeometry().setPositions(
+      points.flatMap((v) => [v.x, v.y, v.z]));
+    const mat = new LineMaterial({
+      color, transparent: true, linewidth: linkWidth() });
+    const c = renderer.domElement;
+    mat.resolution.set(c.width, c.height);
+    linkMats.push(mat);
+    return new Line2(geo, mat);
+  }
+
+  /** Resynchronise la résolution des liens après un resize. */
+  const syncLinkRes = () => {
+    const c = renderer.domElement;
+    for (const m of linkMats) m.resolution.set(c.width, c.height);
+  };
+
+  /**
+   * Brouillard de profondeur (M9a) : bornes recalculées par rapport à la
+   * distance caméra-cible pour que le réglage reste cohérent au zoom.
+   * 0 = désactivé (repoussé à l'infini) ; 100 = brume marquée.
+   */
+  function applyFog() {
+    const f = settings.fog / 100;
+    if (f <= 0) { scene.fog.near = 1e9; scene.fog.far = 1e9 + 1; return; }
+    const d = camera.position.distanceTo(controls.target);
+    scene.fog.near = Math.max(1, d * (1 - 0.35 * f));
+    scene.fog.far = d * (1 + 2.2 * f);
+  }
+
   /* ------------------- presets caméra ------------------- */
 
   const presets = document.createElement('div');
@@ -135,22 +179,45 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   }
   container.appendChild(presets);
 
-  /* ------------------- panneau de réglages (M7b) ------------------- */
+  /* ------------------- panneau de réglages (M7b/M9a) ------------------- */
 
-  // Périmètre minimal (décision M7b) : épaisseur des barres, écarts couple /
-  // couple-enfants, échelle du temps. Le layout partagé est recalculé avec
-  // les nouvelles métriques (« change » seulement, pas à chaque « input »).
+  // Réglages de layout (M7b) : recalcule tout le placement partagé.
+  // Réglages de rendu (M9a) : appliqués sans relayout — épaisseur des
+  // liens (Line2) et brouillard de profondeur.
   const panel = document.createElement('details');
   panel.id = 'view3d-settings';
   panel.open = true;
   const summary = document.createElement('summary');
   summary.textContent = 'Réglages';
   panel.appendChild(summary);
+
+  /** Applique un réglage après changement du slider correspondant. */
+  function applySetting(key) {
+    if (key === 'barH' || key === 'gapRow' || key === 'bandGap'
+        || key === 'yearW') {
+      layout.setMetrics({
+        rowH: settings.barH, gapRow: settings.gapRow, bandGap: settings.bandGap });
+      update(currentRootId);
+    } else if (key === 'linkW') {
+      const w = linkWidth();
+      content.traverse((o) => {
+        if (o.userData?.lw0 == null) return;
+        o.userData.lw0 = w;
+        o.material.linewidth = w;
+      });
+      if (hovered) applyHighlight(hovered.person);   // re-surbrillance
+    } else if (key === 'fog') {
+      applyFog();
+    }
+  }
+
   for (const [key, label, min, max, step] of [
     ['barH', 'Épaisseur barres', 6, 30, 1],
     ['gapRow', 'Écart couple', 2, 20, 1],
     ['bandGap', 'Écart couple–enfants', 5, 60, 1],
     ['yearW', 'Échelle du temps', 1, 20, 0.5],
+    ['linkW', 'Épaisseur des liens', 0.5, 6, 0.5],
+    ['fog', 'Brouillard (profondeur)', 0, 100, 1],
   ]) {
     const row = document.createElement('div');
     row.className = 'v3d-set-row';
@@ -165,9 +232,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     input.addEventListener('input', () => { val.textContent = input.value; });
     input.addEventListener('change', () => {
       settings[key] = parseFloat(input.value);
-      layout.setMetrics({
-        rowH: settings.barH, gapRow: settings.gapRow, bandGap: settings.bandGap });
-      update(currentRootId);
+      applySetting(key);
     });
     row.append(lab, val, input);
     panel.appendChild(row);
@@ -201,8 +266,8 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   // La 3D fournit ses métriques en unités monde (barres épaisses) ; une
   // ligne de layout [y, y+barH] correspond exactement à une barre.
   // ATTENTION : le layout travaille en coordonnées écran (y vers le bas,
-  // comme le SVG de la frise) alors que l'axe oY de Three.js pointe vers
-  // le haut — tout y est donc retourné au moment du dessin (Y = -(y + h/2)).
+  // comme le SVG de la frise) alors que l'axe oY de Three.js pointe vers le
+  // haut — tout y est donc retourné au moment du dessin (Y = -(y + h/2)).
   const layout = createFamilyLayout({
     index, getEdits, upGen, downGen,
     metrics: { rowH: settings.barH, gapRow: settings.gapRow, bandGap: settings.bandGap },
@@ -219,6 +284,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     });
     content.clear();
     bars = [];
+    linkMats.length = 0;
   }
 
   /** Sprite texte générique (billboard). */
@@ -427,18 +493,19 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     }
 
     // ---------- repères de mariage + filiations (émis par layout.js) ----------
-    // Segments 3D en diagonale quand les extrémités sont sur des plans
-    // différents (M7b) : le mariage relie les z des deux conjoints, la
-    // filiation part du z moyen des lignes du couple source.
+    // Liens épais (Line2/LineMaterial, M9a) : diagonales quand les
+    // extrémités sont sur des plans différents (M7b) — le mariage relie
+    // les z des deux conjoints, la filiation part du z moyen des lignes
+    // du couple source. lw0 = épaisseur de référence (surbrillance au
+    // survol : ×2,5 sur les liens de la famille).
     for (const l of links) {
       const x = l.year * settings.yearW;
       if (l.kind === 'marr') {
-        const geo = new THREE.BufferGeometry().setFromPoints([
+        const line = makeLink([
           new THREE.Vector3(x, -(l.rowA.y + settings.barH / 2), l.rowA.z),
-          new THREE.Vector3(x, -(l.rowB.y + settings.barH / 2), l.rowB.z)]);
-        const line = new THREE.Line(geo,
-          new THREE.LineBasicMaterial({ color: MARR_COL, transparent: true }));
-        line.userData = { ids: l.ids, op0: 1 };
+          new THREE.Vector3(x, -(l.rowB.y + settings.barH / 2), l.rowB.z)],
+          MARR_COL);
+        line.userData = { ids: l.ids, op0: 1, lw0: linkWidth() };
         content.add(line);
       } else {
         const cr = l.childRow;
@@ -449,13 +516,11 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         const zFrom = fromRows.length
           ? fromRows.reduce((s, fr) => s + fr.z, 0) / fromRows.length
           : cr.z;
-        const geo = new THREE.BufferGeometry().setFromPoints([
+        const line = makeLink([
           new THREE.Vector3(x, yFrom, zFrom),
           new THREE.Vector3(x, (yFrom + cy) / 2, (zFrom + cr.z) / 2),
-          new THREE.Vector3(cr.x1 + 12, cy, cr.z)]);
-        const line = new THREE.Line(geo,
-          new THREE.LineBasicMaterial({ color: LINK_COL, transparent: true }));
-        line.userData = { ids: l.ids, op0: 1 };
+          new THREE.Vector3(cr.x1 + 12, cy, cr.z)], LINK_COL);
+        line.userData = { ids: l.ids, op0: 1, lw0: linkWidth() };
         content.add(line);
       }
     }
@@ -509,18 +574,24 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     return hits.length ? hits[0].object.userData.row : null;
   };
 
-  /** Survol : surbrillance de la famille, le reste est estompé. */
+  /** Survol : surbrillance de la famille — liens épaissis (M9a),
+   *  le reste est estompé (opacité 0,1, liens à l'épaisseur normale). */
   function applyHighlight(person) {
     const fam = familySet(index, person);
     content.traverse((o) => {
       if (!o.material || !o.userData.ids) return;
       const inFam = o.userData.ids.every((i) => fam.has(i));
       o.material.opacity = inFam ? o.userData.op0 : 0.1;
+      if (o.userData.lw0 != null) {
+        o.material.linewidth = inFam ? o.userData.lw0 * 2.5 : o.userData.lw0;
+      }
     });
   }
   const clearHighlight = () => {
     content.traverse((o) => {
-      if (o.material && o.userData.ids) o.material.opacity = o.userData.op0;
+      if (!o.material || !o.userData.ids) return;
+      o.material.opacity = o.userData.op0;
+      if (o.userData.lw0 != null) o.material.linewidth = o.userData.lw0;
     });
   };
 
@@ -568,6 +639,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     renderer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    syncLinkRes();
   };
   if (typeof ResizeObserver !== 'undefined') {
     new ResizeObserver(resize).observe(container);
@@ -578,6 +650,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   const loop = () => {
     requestAnimationFrame(loop);
     controls.update();
+    applyFog();   // bornes du brouillard : suivent la distance caméra (M9a)
     renderer.render(scene, camera);
   };
   loop();
