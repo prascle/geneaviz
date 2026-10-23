@@ -4,7 +4,7 @@ Application web 100 % client (JavaScript ES modules + HTML) pour l'exploration d
 généalogiques au format GEDCOM. Trois vues : arbre générationnel (D3),
 chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
 
-## État : jalon M8b — fiche individu (lecture GEDCOM riche)
+## État : jalon M9a — vue 3D : liens épais et brouillard de profondeur
 
 - `js/logger.js` — traces module par module, niveaux DEBUG/INFO/WARN/ERROR.
 - `js/utils.js` — parsing/formatage des dates GEDCOM (y compris ABT/BEF/AFT), debounce.
@@ -97,6 +97,15 @@ chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
   visible (cible privilégiée). Infobulle enrichie d'une ligne de contexte
   (profession, lieux de naissance/décès — `js/tooltip.js` et sa copie dans
   `js/tree.js`, donc les trois vues).
+- M9a — `js/view3d.js` : liens de mariage/filiation en traits épais — migration de
+  THREE.Line/LineBasicMaterial vers `Line2`/`LineMaterial`/`LineGeometry` (addons
+  `three/addons/lines/`, importmap inchangée) ; épaisseur réglable en pixels CSS
+  (0,5 à 6, défaut 2) ; au survol d'un individu les liens de sa famille sont
+  épaissis (×2,5) pour accompagner la surbrillance ; brouillard de profondeur
+  réglable (0–100, 0 = désactivé) dont les bornes sont recalculées à chaque image
+  relativement à la distance caméra–cible (effet stable quel que soit le zoom) ;
+  la grille des années et les contours de plans restent en fil fin. Deux nouveaux
+  curseurs dans le panneau « Réglages » : « Épaisseur des liens » et « Brouillard ».
 
 ## Utilisation
 
@@ -123,7 +132,8 @@ famille + infobulle enrichie d'une ligne de contexte : profession, lieux de
 naissance/décès). Les éditions d'affichage s'y matérialisent par des plans
 parallèles décalés en profondeur (une couleur par pivot, surface translucide),
 reliés au graphe par des liens en diagonale ; le panneau « Réglages » (sous les
-presets) ajuste l'épaisseur des barres, les écarts et l'échelle du temps.
+presets) ajuste l'épaisseur des barres, les écarts, l'échelle du temps, l'épaisseur des
+liens (×2,5 sur la famille survolée) et le brouillard de profondeur (0 = désactivé).
 Les fichiers anciens non-UTF-8 (CP1252/ANSI, UTF-16, ANSEL…) sont désormais
 correctement décodés ; un fichier mal formé (sans en-tête HEAD, sans trailer
 TRLR, niveaux incohérents) est refusé avec un message explicite.
@@ -160,3 +170,7 @@ Après chargement d'un fichier :
   conservés par l'index (`person.raw`, `fam.raw` — valeurs CONT/CONC déjà
   fusionnées) uniquement à l'ouverture, et résout les notes et sources
   référencées par `@xref@` via la sélection racine (`index.getGedcom()`).
+- Les liens 3D (M9a) utilisent `Line2`/`LineMaterial` (addons `three/addons/lines/`)
+  dont l'épaisseur s'exprime en pixels du tampon de rendu (multipliée par le pixel
+  ratio du navigateur) et dont la résolution doit suivre la taille du canvas à
+  chaque redimensionnement (recalcul au resize).
