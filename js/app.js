@@ -176,7 +176,11 @@ async function handleFile(file) {
     initSearchBar({
       container,
       searchService,
-      onSelect: (id) => { showDetails(index, id); showFiche(index, id); setRoot(id); },
+      // Sélection via la recherche (notamment la sélection initiale) :
+      // détail compact + racine, mais PAS d'ouverture forcée de la fiche —
+      // elle ne masque ainsi ni le graphe ni les boutons ; son contenu est
+      // seulement resynchronisé si elle est déjà ouverte.
+      onSelect: (id) => { showDetails(index, id); syncFiche(index, id); setRoot(id); },
     });
     searchSection.hidden = false;
     detailSection.hidden = false;
@@ -310,6 +314,25 @@ function showFiche(index, id) {
   }
   fichePanel.classList.add('open');
   fichePanel.setAttribute('aria-hidden', 'false');
+}
+
+/**
+ * Met à jour le contenu de la fiche **sans l'ouvrir** : si le panneau est
+ * fermé il reste fermé (la sélection via la recherche ne doit pas masquer
+ * le graphe ni les boutons — la fiche s'ouvre seulement par un clic dans
+ * une vue, le menu contextuel ou le bouton du panneau détail).
+ * @param {Object} index - index applicatif
+ * @param {string} id - xref de l'individu sélectionné
+ * @returns {void}
+ */
+function syncFiche(index, id) {
+  if (!fichePanel.classList.contains('open')) return;
+  const detail = buildDetail(index, id);
+  if (!detail) {
+    ficheBody.textContent = `Individu introuvable : ${id}`;
+  } else {
+    ficheBody.innerHTML = detailHtml(detail);
+  }
 }
 
 /**
