@@ -4,12 +4,14 @@ Application web 100 % client (JavaScript ES modules + HTML) pour l'exploration d
 généalogiques au format GEDCOM. Trois vues : arbre générationnel (D3),
 chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
 
-## État : jalon M7b — plans d'édition 3D + panneau de réglages
+## État : jalon M8a — lecture GEDCOM via read-gedcom
 
 - `js/logger.js` — traces module par module, niveaux DEBUG/INFO/WARN/ERROR.
 - `js/utils.js` — parsing/formatage des dates GEDCOM (y compris ABT/BEF/AFT), debounce.
-- `js/gedcomLoader.js` — lecture du fichier (File API) + parsing GEDCOM en mémoire.
-- `js/gedcomIndex.js` — index des individus, familles, patronymes, liens parents/enfants.
+- `js/gedcomLoader.js` — lecture du fichier (File API) et parsing délégués à
+  `read-gedcom` 0.3.2.
+- `js/gedcomIndex.js` — index des individus, familles, patronymes, liens
+  parents/enfants, construit sur la sélection read-gedcom.
 - `js/dateEstimator.js` — estimation des dates manquantes (règles réglables, cf. JSDoc).
 - M1 — `js/search.js` + `js/searchBar.js` : recherche par patronyme/prénom, sélection
   d'un individu, panneau de détails (dates exactes vs estimées).
@@ -70,6 +72,14 @@ chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
   plans ; grille des années étendue à tous les plans ; panneau « Réglages »
   (épaisseur des barres, écart dans le couple, écart couple–enfants, échelle du
   temps) qui recalcule le layout partagé à la volée (la frise reste inchangée).
+- M8a — `js/gedcomLoader.js` + `js/gedcomIndex.js` : lecture et parsing du GEDCOM
+  migrés vers la bibliothèque `read-gedcom` 0.3.2 (zéro dépendance, navigateur
+  natif) — détection d'encodage intégrée selon l'en-tête CHAR (UTF-8, UTF-16,
+  CP1252/ANSI, ANSEL, MacRoman, CP850), CONT/CONC fusionnés, structure validée
+  (HEAD en tête, TRLR en fin, imbrication des niveaux) ; index et vues
+  inchangés (non-régression vérifiée champ à champ sur un banc de test),
+  `index.getGedcom()` expose la sélection racine read-gedcom pour l'extraction
+  riche à venir (M8b : fiche individu).
 
 ## Utilisation
 
@@ -92,6 +102,9 @@ famille + infobulle). Les éditions d'affichage s'y matérialisent par des plans
 parallèles décalés en profondeur (une couleur par pivot, surface translucide),
 reliés au graphe par des liens en diagonale ; le panneau « Réglages » (sous les
 presets) ajuste l'épaisseur des barres, les écarts et l'échelle du temps.
+Les fichiers anciens non-UTF-8 (CP1252/ANSI, UTF-16, ANSEL…) sont désormais
+correctement décodés ; un fichier mal formé (sans en-tête HEAD, sans trailer
+TRLR, niveaux incohérents) est refusé avec un message explicite.
 
 Niveau de trace : ajouter `?log=DEBUG` à l'URL (ou `localStorage.setItem('genea:logLevel','DEBUG')`).
 
@@ -101,6 +114,8 @@ Après chargement d'un fichier :
 - `genea.index.getIndividual(id)` — fiche individuelle complète.
 - `genea.index.searchByName('DUPONT', 'jean')` — recherche par patronyme/prénom (M1).
 - `genea.index.stats()` — statistiques de chargement et d'estimation.
+- `genea.index.getGedcom()` — sélection read-gedcom racine (socle de la fiche
+  individu M8b : événements complets, lieux, professions, notes, sources).
 - `genea.tree.update(id)` — recentre l'arbre combiné sur un individu.
 - `genea.timeline.update(id)` — reconstruit la frise chronologique sur un individu.
 - `genea.view3d.update(id)` — reconstruit la vue 3D sur un individu.
@@ -113,6 +128,9 @@ Après chargement d'un fichier :
 
 ## Notes techniques
 
-- Le parsing GEDCOM de M0 est un parseur interne minimal (niveaux/xrefs/CONT/CONC).
-  L'intégration de `read-gedcom` (dates riches, approximations, sources) est prévue
-  en itération suivante pour l'extraction détaillée des champs.
+- Le parsing GEDCOM est délégué à `read-gedcom` 0.3.2 (M8a) : décodage natif des
+  encodages, validation stricte de la structure (HEAD en tête, TRLR en fin,
+  imbrication des niveaux, pointeurs uniques), erreurs explicites. Les dates
+  restent analysées par `js/utils.js` (comportement des vues et de l'estimateur
+  strictement inchangé) ; l'extraction riche des champs (dates complètes,
+  lieux, professions, notes, sources) pour la fiche individu est prévue en M8b.

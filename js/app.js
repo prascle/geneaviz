@@ -7,7 +7,7 @@
  * d'affichage M6 (branches extensibles, registre partagé par les vues).
  */
 import { logger } from './logger.js';
-import { readGedcomFile, parseGedcom } from './gedcomLoader.js';
+import { readGedcomFile } from './gedcomLoader.js';
 import { buildIndex } from './gedcomIndex.js';
 import { initSearch } from './search.js';
 import { initSearchBar } from './searchBar.js';
@@ -52,9 +52,8 @@ async function handleFile(file) {
   outputEl.textContent = '';
   try {
     const t0 = performance.now();
-    const text = await readGedcomFile(file);
-    const parsed = parseGedcom(text);
-    const index = buildIndex(parsed);
+    const gedcom = await readGedcomFile(file);
+    const index = buildIndex(gedcom);
     const dt = performance.now() - t0;
 
     const searchService = initSearch(index);
