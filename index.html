@@ -114,6 +114,18 @@
     border: 1px solid #cbd5e1; border-radius: 4px; background: #fff;
     cursor: pointer; }
   #view3d-presets button:hover { background: #eff6ff; }
+
+  /* panneau de réglages de la vue 3D (M7b) */
+  #view3d-settings { position: absolute; top: 44px; right: 8px; z-index: 5;
+    background: #fff; border: 1px solid #cbd5e1; border-radius: 6px;
+    font-size: 12px; padding: .35rem .55rem; min-width: 11rem; }
+  #view3d-settings summary { cursor: pointer; color: #555; padding: .1rem .15rem; }
+  #view3d-settings .v3d-set-row { display: grid;
+    grid-template-columns: auto 1.6rem 1fr; gap: .35rem;
+    align-items: center; padding: .18rem .15rem; }
+  #view3d-settings .v3d-set-row label { color: #333; white-space: nowrap; }
+  #view3d-settings .v3d-set-row span { text-align: right; color: #555; }
+  #view3d-settings .v3d-set-row input[type="range"] { width: 100%; }
 </style>
 <script type="importmap">
 {
