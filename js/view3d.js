@@ -25,7 +25,9 @@
  *    couple-enfants, échelle du temps, épaisseur des liens, brouillard
  *    de profondeur (bornes recalculées par rapport à la caméra).
  * Interactions : clic gauche = détail, clic droit = menu contextuel,
- * double-clic = viser l'individu, survol = surbrillance de famille.
+ * double-clic = viser l'individu, survol = surbrillance de famille,
+ * clic sur la surface d'un plan d'édition = isoler ce plan (M9b : les
+ * autres plans sont estompés), clic sur le fond = tous rétablir.
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -127,6 +129,20 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   /** Barres interactives (picking). */
   let bars = [];
 
+  /** Surfaces translucides des plans d'édition (picking M9b). */
+  let planeSurfs = [];
+
+  /**
+   * Isolation de plan (M9b) : undefined = aucune, null = plan de base,
+   * sinon l'id du pivot du plan isolé. Conservée d'un rendu à l'autre
+   * (panneau Réglages) ; annulée si le plan isolé disparaît.
+   */
+  let isolated = undefined;
+
+  /** Lignes et plans du dernier rendu (API planeOf/planeCount, M9b). */
+  let lastRows = new Map();
+  let planePivots = new Set();
+
   /** Matériaux des liens épais (Line2) : résolution à suivre au resize. */
   const linkMats = [];
 
@@ -205,7 +221,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         o.userData.lw0 = w;
         o.material.linewidth = w;
       });
-      if (hovered) applyHighlight(hovered.person);   // re-surbrillance
+      applyLook();   // re-surbrillance / isolation après changement d'épaisseur
     } else if (key === 'fog') {
       applyFog();
     }
@@ -284,6 +300,9 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     });
     content.clear();
     bars = [];
+    planeSurfs = [];
+    lastRows = new Map();
+    planePivots = new Set();
     linkMats.length = 0;
   }
 
@@ -358,6 +377,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     currentRootId = rootId;
     clearContent();
     hideTip();
+    hovered = null;
     if (!rootId || !index.getIndividual(rootId)) return;
     const L = layout.run(rootId);
     const rows = L.rows;
@@ -389,6 +409,12 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       } else {
         r.z = 0;
       }
+    }
+    planePivots = new Set(usedPivots);
+    lastRows = rows;
+    if (isolated !== undefined && isolated !== null
+        && !usedPivots.has(isolated)) {
+      isolated = undefined;   // le plan isolé a disparu (édition retirée)
     }
 
     // bornes du contenu (y retourné : oY Three pointe vers le haut)
@@ -423,7 +449,8 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     // ---------- surfaces translucides des plans d'édition (M7b) ----------
     // Une surface par plan réellement utilisé, teintée de la couleur de
     // la pastille du pivot (remplissage très pâle + contour), ajoutée
-    // AVANT les barres (pas de userData.ids : jamais grisées au survol).
+    // AVANT les barres (pas de userData.ids : jamais grisées au survol ;
+    // M9b : userData.plane, pickables pour isoler le plan au clic).
     const padX = 40, padY = 30;
     for (const piv of usedPivots) {
       let px1 = Infinity, px2 = -Infinity, py1 = Infinity, py2 = -Infinity;
@@ -441,10 +468,13 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         color: col, transparent: true, opacity: 0.05,
         depthWrite: false, side: THREE.DoubleSide }));
       surf.position.set((px1 + px2) / 2, -(py1 + py2) / 2, z);
+      surf.userData = { plane: piv, surf: true, op0: 0.05 };   // pickable (M9b)
       content.add(surf);
+      planeSurfs.push(surf);
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo),
         new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.35 }));
       edges.position.copy(surf.position);
+      edges.userData = { plane: piv, edges: true, op0: 0.35 };
       content.add(edges);
     }
 
@@ -460,7 +490,8 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(w, settings.barH, BAR_D), mat);
       mesh.position.set(r.x1 + w / 2, -(r.y + settings.barH / 2), r.z);   // y retourné
-      mesh.userData = { row: r, ids: [r.id], op0: mat.opacity };
+      mesh.userData = { row: r, ids: [r.id], op0: mat.opacity,
+                         plane: r.pivot ?? null };
       content.add(mesh);
       bars.push(mesh);
 
@@ -472,7 +503,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
           new THREE.MeshBasicMaterial({ color: 0x2563eb, transparent: true }));
         cone.rotation.z = -Math.PI / 2;
         cone.position.set(r.x2 + 12, -(r.y + settings.barH / 2), r.z);
-        cone.userData = { ids: [r.id], op0: 1 };
+        cone.userData = { ids: [r.id], op0: 1, plane: r.pivot ?? null };
         content.add(cone);
       }
 
@@ -487,7 +518,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
           new THREE.MeshBasicMaterial({ color: new THREE.Color(cHex),
                                         transparent: true }));
         cube.position.set(r.x2 + 5, -(r.y + bh / 2 + i * bh), r.z);
-        cube.userData = { ids: [r.id], op0: 1 };
+        cube.userData = { ids: [r.id], op0: 1, plane: r.pivot ?? null };
         content.add(cube);
       });
     }
@@ -505,7 +536,8 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
           new THREE.Vector3(x, -(l.rowA.y + settings.barH / 2), l.rowA.z),
           new THREE.Vector3(x, -(l.rowB.y + settings.barH / 2), l.rowB.z)],
           MARR_COL);
-        line.userData = { ids: l.ids, op0: 1, lw0: linkWidth() };
+        line.userData = { ids: l.ids, op0: 1, lw0: linkWidth(),
+          planes: [l.rowA.pivot ?? null, l.rowB.pivot ?? null] };
         content.add(line);
       } else {
         const cr = l.childRow;
@@ -520,11 +552,13 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
           new THREE.Vector3(x, yFrom, zFrom),
           new THREE.Vector3(x, (yFrom + cy) / 2, (zFrom + cr.z) / 2),
           new THREE.Vector3(cr.x1 + 12, cy, cr.z)], LINK_COL);
-        line.userData = { ids: l.ids, op0: 1, lw0: linkWidth() };
+        line.userData = { ids: l.ids, op0: 1, lw0: linkWidth(),
+          planes: [...fromRows.map((fr) => fr.pivot ?? null), cr.pivot ?? null] };
         content.add(line);
       }
     }
 
+    applyLook();   // état d'isolation conservé d'un rendu à l'autre (M9b)
     setCamera('face');
     log.info(`Vue 3D : ${rows.size} individu(s), ${links.length} lien(s)` +
       (usedPivots.size ? `, ${usedPivots.size} plan(s) d'édition` : '') +
@@ -563,60 +597,102 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   const ray = new THREE.Raycaster();
   const ptr = new THREE.Vector2();
   let hovered = null;
+  let downX = 0, downY = 0;   // départ du pointerdown (clic vs rotation)
 
-  const pick = (ev) => {
+  const castAt = (ev, objects) => {
     const rect = renderer.domElement.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
     ptr.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     ptr.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     ray.setFromCamera(ptr, camera);
-    const hits = ray.intersectObjects(bars, false);
-    return hits.length ? hits[0].object.userData.row : null;
+    const hits = ray.intersectObjects(objects, false);
+    return hits.length ? hits[0].object : null;
   };
 
-  /** Survol : surbrillance de la famille — liens épaissis (M9a),
-   *  le reste est estompé (opacité 0,1, liens à l'épaisseur normale). */
-  function applyHighlight(person) {
-    const fam = familySet(index, person);
+  const pick = (ev) => {
+    const o = castAt(ev, bars);
+    return o ? o.userData.row : null;
+  };
+  const pickPlane = (ev) => {
+    const o = castAt(ev, planeSurfs);
+    return o ? o.userData.plane : null;
+  };
+
+  /** Le plan de l'objet est-il actif ? (M9b : isolation de plan) */
+  function planeActive(o) {
+    if (isolated === undefined) return true;
+    if (o.userData.plane !== undefined) return o.userData.plane === isolated;
+    if (o.userData.planes) return o.userData.planes.includes(isolated);
+    return true;
+  }
+
+  /**
+   * Recalcule l'aspect de tout le contenu — un seul endroit, appelé au
+   * survol comme à l'isolation. Survol : surbrillance de famille, liens
+   * épaissis (M9a), le reste estompé (opacité 0,1). Isolation (M9b) :
+   * les objets des autres plans sont estompés (opacité 0,07) —
+   * prioritaire sur le survol ; les surfaces de plans suivent (plan
+   * isolé renforcé, autres plans quasi effacés).
+   */
+  function applyLook() {
+    const fam = hovered ? familySet(index, hovered.person) : null;
     content.traverse((o) => {
-      if (!o.material || !o.userData.ids) return;
-      const inFam = o.userData.ids.every((i) => fam.has(i));
-      o.material.opacity = inFam ? o.userData.op0 : 0.1;
-      if (o.userData.lw0 != null) {
-        o.material.linewidth = inFam ? o.userData.lw0 * 2.5 : o.userData.lw0;
+      if (!o.material) return;
+      const ud = o.userData;
+      if (ud.surf || ud.edges) {   // plans d'édition (jamais au survol)
+        o.material.opacity = isolated === undefined ? ud.op0
+          : planeActive(o) ? (ud.surf ? 0.1 : 0.55)
+          : (ud.surf ? 0.015 : 0.05);
+        return;
+      }
+      if (!ud.ids) return;
+      const act = planeActive(o);
+      const inFam = !!fam && ud.ids.every((i) => fam.has(i));
+      o.material.opacity = !act ? Math.min(ud.op0, 0.07)
+        : fam && !inFam ? 0.1 : ud.op0;
+      if (ud.lw0 != null) {
+        o.material.linewidth = inFam && act ? ud.lw0 * 2.5 : ud.lw0;
       }
     });
   }
-  const clearHighlight = () => {
-    content.traverse((o) => {
-      if (!o.material || !o.userData.ids) return;
-      o.material.opacity = o.userData.op0;
-      if (o.userData.lw0 != null) o.material.linewidth = o.userData.lw0;
-    });
-  };
 
   renderer.domElement.addEventListener('pointermove', (ev) => {
     const hit = pick(ev);
     if (hit !== hovered) {
       hovered = hit;
-      if (hit) {
-        showTip(hit.person);
-        applyHighlight(hit.person);
-        renderer.domElement.style.cursor = 'pointer';
-      } else {
-        hideTip();
-        clearHighlight();
-        renderer.domElement.style.cursor = '';
-      }
+      if (hit) showTip(hit.person);
+      else hideTip();
+      applyLook();
     }
+    renderer.domElement.style.cursor = hit ? 'pointer'
+      : planeSurfs.length && pickPlane(ev) != null ? 'pointer' : '';
   });
   renderer.domElement.addEventListener('pointerleave', () => {
-    hovered = null; hideTip(); clearHighlight();
+    hovered = null; hideTip(); applyLook();
     renderer.domElement.style.cursor = '';
+  });
+  renderer.domElement.addEventListener('pointerdown', (ev) => {
+    downX = ev.clientX; downY = ev.clientY;
   });
   renderer.domElement.addEventListener('click', (ev) => {
     const hit = pick(ev);
-    if (hit && onSelectPerson) onSelectPerson(hit.person.id);
+    if (hit) {
+      if (onSelectPerson) onSelectPerson(hit.person.id);
+      return;
+    }
+    // M9b : clic (pas une rotation terminée) sur la surface d'un plan =
+    // isoler ce plan ; clic sur le fond = rétablir tous les plans.
+    if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > 5) return;
+    const plane = pickPlane(ev);
+    if (plane != null) {
+      isolated = plane;
+      applyLook();
+      log.info('Vue 3D : plan isolé (pivot ' + plane + ')');
+    } else if (isolated !== undefined) {
+      isolated = undefined;
+      applyLook();
+      log.info('Vue 3D : tous les plans rétablis');
+    }
   });
   renderer.domElement.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
@@ -660,5 +736,20 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     update,
     setGenerations: (u, d) => { upGen = u; downGen = d; layout.setGenerations(u, d); update(currentRootId); },
     reset: () => setCamera('face'),
+    /** Nombre de plans dessinés, plan de base inclus (M9b). */
+    planeCount: () => (lastRows.size ? 1 + planePivots.size : 0),
+    /** Plan de l'individu : null = plan de base, sinon id du pivot (M9b). */
+    planeOf: (id) => { const r = lastRows.get(id); return r ? (r.pivot ?? null) : null; },
+    /** Isolation courante : undefined = aucune, null = base, sinon pivot (M9b). */
+    getIsolation: () => isolated,
+    /** Isole le plan de l'individu donné (M9b). */
+    isolatePlane: (id) => {
+      const r = lastRows.get(id);
+      if (!r) return;
+      isolated = r.pivot ?? null;
+      applyLook();
+    },
+    /** Rétablit tous les plans (M9b). */
+    clearIsolation: () => { isolated = undefined; applyLook(); },
   };
 }
