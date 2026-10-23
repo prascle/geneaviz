@@ -4,7 +4,7 @@ Application web 100 % client (JavaScript ES modules + HTML) pour l'exploration d
 généalogiques au format GEDCOM. Trois vues : arbre générationnel (D3),
 chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
 
-## État : jalon M9a — vue 3D : liens épais et brouillard de profondeur
+## État : jalon M9b — vue 3D : isolation des plans et caméra orthographique
 
 - `js/logger.js` — traces module par module, niveaux DEBUG/INFO/WARN/ERROR.
 - `js/utils.js` — parsing/formatage des dates GEDCOM (y compris ABT/BEF/AFT), debounce.
@@ -106,6 +106,19 @@ chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
   relativement à la distance caméra–cible (effet stable quel que soit le zoom) ;
   la grille des années et les contours de plans restent en fil fin. Deux nouveaux
   curseurs dans le panneau « Réglages » : « Épaisseur des liens » et « Brouillard ».
+- M9b — `js/view3d.js` + `js/app.js` : isolation d'un plan d'édition — clic sur
+  la surface translucide d'un plan, ou entrée « Isoler ce plan » du menu
+  contextuel (« Isoler le plan de base » depuis le plan de base, « Rétablir
+  tous les plans » tant qu'une isolation est active) ; les autres plans
+  s'estompent (barres, pastilles et liens à 0,07, surfaces quasi effacées),
+  le plan isolé est renforcé, la barre de son pivot reste visible et les
+  liens en diagonale qui le rattachent au graphe restent nets ; l'isolation
+  survit aux réglages (relayout) et s'annule si l'édition est retirée ; clic
+  sur le fond = rétablir (un glisser-rotation ne déclenche rien). Bascule
+  caméra perspective ↔ orthographique dans le panneau Réglages : même point
+  de vue à la bascule (frustum calé sur le cadrage de la perspective,
+  demi-hauteur = tan(fov/2) × distance), recalculé au resize et aux presets,
+  taille apparente stable au pan et au zoom molette.
 
 ## Utilisation
 
@@ -133,7 +146,10 @@ naissance/décès). Les éditions d'affichage s'y matérialisent par des plans
 parallèles décalés en profondeur (une couleur par pivot, surface translucide),
 reliés au graphe par des liens en diagonale ; le panneau « Réglages » (sous les
 presets) ajuste l'épaisseur des barres, les écarts, l'échelle du temps, l'épaisseur des
-liens (×2,5 sur la famille survolée) et le brouillard de profondeur (0 = désactivé).
+liens (×2,5 sur la famille survolée) et bascule caméra perspective/orthographique. Dans cette vue, un clic sur la
+surface d'un plan d'édition l'isole (les autres plans s'estompent, la barre du
+pivot reste visible) ; le clic sur le fond ou l'entrée « Rétablir tous les
+plans » du menu contextuel affiche de nouveau l'ensemble.
 Les fichiers anciens non-UTF-8 (CP1252/ANSI, UTF-16, ANSEL…) sont désormais
 correctement décodés ; un fichier mal formé (sans en-tête HEAD, sans trailer
 TRLR, niveaux incohérents) est refusé avec un message explicite.
@@ -174,3 +190,11 @@ Après chargement d'un fichier :
   dont l'épaisseur s'exprime en pixels du tampon de rendu (multipliée par le pixel
   ratio du navigateur) et dont la résolution doit suivre la taille du canvas à
   chaque redimensionnement (recalcul au resize).
+- Caméra orthographique (M9b) : le frustum suit le cadrage de la perspective à
+  même distance (demi-hauteur = tan(fov/2) × distance) ; en ortho, le zoom
+  molette et le pan jouent sur camera.zoom (OrbitControls), indépendant du
+  frustum — d'où un recalcul limité à la bascule, au resize et aux presets.
+- Isolation des plans (M9b) : chaque objet porte son plan dans userData
+  (plane / planes) et un seul parcours (applyLook) compose survol et
+  isolation — l'isolation prime sur le survol ; les surfaces de plans sont
+  pickables (raycast indépendant de l'opacité).
