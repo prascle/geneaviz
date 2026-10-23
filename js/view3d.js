@@ -632,7 +632,8 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
    * épaissis (M9a), le reste estompé (opacité 0,1). Isolation (M9b) :
    * les objets des autres plans sont estompés (opacité 0,07) —
    * prioritaire sur le survol ; les surfaces de plans suivent (plan
-   * isolé renforcé, autres plans quasi effacés).
+   * isolé renforcé, autres plans quasi effacés) ; la barre du pivot du
+   * plan isolé reste visible (le pivot vit sur le plan de base).
    */
   function applyLook() {
     const fam = hovered ? familySet(index, hovered.person) : null;
@@ -646,7 +647,13 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         return;
       }
       if (!ud.ids) return;
-      const act = planeActive(o);
+      // M9b : le pivot du plan isolé reste visible — sa barre vit sur le
+      // plan de base et disparaissait avec lui à l'isolation (barre,
+      // pastille et cône du pivot seulement, pas les liens de sa famille
+      // qui restent régis par les plans de leurs extrémités).
+      const isPivot = isolated != null && ud.ids.length === 1
+        && ud.ids[0] === isolated;
+      const act = planeActive(o) || isPivot;
       const inFam = !!fam && ud.ids.every((i) => fam.has(i));
       o.material.opacity = !act ? Math.min(ud.op0, 0.07)
         : fam && !inFam ? 0.1 : ud.op0;
