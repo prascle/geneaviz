@@ -1,10 +1,14 @@
 /**
- * view3d.js — Vue 3D (M7a) : squelette Three.js du graphe de base.
+ * view3d.js — Vue 3D (M7a/M7b) : graphe Three.js sur plans d'édition.
  *
  * Axes : oX = temps (comme la vue chrono), oY = générations (ascendants
- * au-dessus de la racine, descendants en dessous), oZ = profondeur (réservé
- * aux plans des éditions, M7b). Le placement oX/oY est calculé par le
- * module partagé layout.js — exactement celui de la vue chronologique.
+ * au-dessus de la racine, descendants en dessous), oZ = profondeur : les
+ * branches introduites par une édition (M6a/M6b) vivent sur des plans
+ * parallèles décalés — un plan par pivot d'édition, dans l'ordre de
+ * création, tous derrière le plan de base (z = 0) ; chaque plan est
+ * teinté de la couleur de sa pastille et matérialisé par une surface
+ * translucide. Le placement oX/oY est calculé par le module partagé
+ * layout.js — exactement celui de la vue chronologique.
  *  - chaque individu = barre temporelle (naissance → décès, flèche si
  *    vivant présumé), couleurs identiques aux vues 2D (sexe, racine,
  *    dates estimées translucides) ;
@@ -12,30 +16,38 @@
  *  - étiquette = texture texte appliquée sur les faces de la barre (nom +
  *    dates sur une seule ligne, le long de la barre) ; l'infobulle de survol
  *    reste le recours quand la texture est trop petite pour être lue ;
- *  - liens de filiation / repères de mariage = lignes ;
+ *  - liens de filiation / repères de mariage = lignes (diagonales entre
+ *    plans, M7b) ;
  *  - grille des années au « sol », presets caméra (frise / dessus /
- *    perspective), OrbitControls (rotation, zoom, pan).
+ *    perspective), OrbitControls (rotation, zoom, pan) ;
+ *  - panneau de réglages (M7b) : épaisseur des barres, écarts couple /
+ *    couple-enfants, échelle du temps.
  * Interactions : clic gauche = détail, clic droit = menu contextuel,
  * double-clic = viser l'individu, survol = surbrillance de famille.
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { logger } from './logger.js';
-import { PILL_BASE_COLOR } from './edits.js';
+import { PILL_BASE_COLOR, editPillColors } from './edits.js';
 import { createFamilyLayout } from './layout.js';
 import { buildTooltipHtml } from './tooltip.js';
 
 const log = logger('view3d');
 
 /** Dimensions du monde (unités arbitraires). */
-const YEAR_W = 8;        // largeur d'une année
 const MIN_BAR_W = 26;    // largeur minimale d'une barre
-const BAR_H = 15;        // épaisseur verticale (3× — futur paramètre du panneau M7b)
-const BAR_D = 8;         // profondeur (oZ)
-const GAP_ROW = 5;        // écart entre les barres d'un couple (métrique layout)
-const BAND_GAP = 18;      // écart entre un couple et ses enfants (métrique layout)
+const BAR_D = 8;         // profondeur d'une barre (oZ)
 const LINK_COL = 0x94a3b8;
 const MARR_COL = 0xb45309;
+const PLANE_GAP = 60;    // écart entre plans d'édition le long de oZ (M7b)
+
+/** Réglages utilisateur (panneau M7b, ajustables à l'exécution). */
+const settings = {
+  barH: 15,     // épaisseur verticale d'une barre (métrique layout rowH)
+  gapRow: 5,    // écart entre les barres d'un couple (métrique layout)
+  bandGap: 18,  // écart entre un couple et ses enfants (métrique layout)
+  yearW: 8,     // largeur d'une année (échelle du temps)
+};
 
 /**
  * Ensemble des ids de la « famille » d'un individu (surbrillance au survol).
@@ -123,6 +135,45 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   }
   container.appendChild(presets);
 
+  /* ------------------- panneau de réglages (M7b) ------------------- */
+
+  // Périmètre minimal (décision M7b) : épaisseur des barres, écarts couple /
+  // couple-enfants, échelle du temps. Le layout partagé est recalculé avec
+  // les nouvelles métriques (« change » seulement, pas à chaque « input »).
+  const panel = document.createElement('details');
+  panel.id = 'view3d-settings';
+  panel.open = true;
+  const summary = document.createElement('summary');
+  summary.textContent = 'Réglages';
+  panel.appendChild(summary);
+  for (const [key, label, min, max, step] of [
+    ['barH', 'Épaisseur barres', 6, 30, 1],
+    ['gapRow', 'Écart couple', 2, 20, 1],
+    ['bandGap', 'Écart couple–enfants', 5, 60, 1],
+    ['yearW', 'Échelle du temps', 1, 20, 0.5],
+  ]) {
+    const row = document.createElement('div');
+    row.className = 'v3d-set-row';
+    const lab = document.createElement('label');
+    lab.textContent = label;
+    const val = document.createElement('span');
+    val.textContent = String(settings[key]);
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = String(min); input.max = String(max); input.step = String(step);
+    input.value = String(settings[key]);
+    input.addEventListener('input', () => { val.textContent = input.value; });
+    input.addEventListener('change', () => {
+      settings[key] = parseFloat(input.value);
+      layout.setMetrics({
+        rowH: settings.barH, gapRow: settings.gapRow, bandGap: settings.bandGap });
+      update(currentRootId);
+    });
+    row.append(lab, val, input);
+    panel.appendChild(row);
+  }
+  container.appendChild(panel);
+
   /* ------------------- infobulle ------------------- */
 
   const tipHost = document.getElementById('workspace') ?? document.body;
@@ -148,13 +199,13 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   // couple dans l'ordre de naissance, parents centrés sur la ligne de leur
   // enfant, solveur anti-chevauchement et branches d'édition M6a/M6b.
   // La 3D fournit ses métriques en unités monde (barres épaisses) ; une
-  // ligne de layout [y, y+BAR_H] correspond exactement à une barre.
+  // ligne de layout [y, y+barH] correspond exactement à une barre.
   // ATTENTION : le layout travaille en coordonnées écran (y vers le bas,
   // comme le SVG de la frise) alors que l'axe oY de Three.js pointe vers
   // le haut — tout y est donc retourné au moment du dessin (Y = -(y + h/2)).
   const layout = createFamilyLayout({
     index, getEdits, upGen, downGen,
-    metrics: { rowH: BAR_H, gapRow: GAP_ROW, bandGap: BAND_GAP },
+    metrics: { rowH: settings.barH, gapRow: settings.gapRow, bandGap: settings.bandGap },
   });
 
   /* ------------------- rendu ------------------- */
@@ -202,7 +253,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   function makeBarTexture(row, wWorld) {
     const ppu = Math.min(16, 4096 / Math.max(wWorld, 1)); // px par unité monde
     const w = Math.max(24, Math.round(wWorld * ppu));
-    const h = Math.max(24, Math.round(BAR_H * ppu));
+    const h = Math.max(24, Math.round(settings.barH * ppu));
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const g = c.getContext('2d');
@@ -247,27 +298,52 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     const links = L.links;
     if (!rows.size) { log.info('Vue 3D : aucune date exploitable'); return; }
     for (const r of rows.values()) {   // temps (années) → unités monde
-      r.x1 = r.t1 * YEAR_W;
-      r.x2 = r.t2 * YEAR_W;
+      r.x1 = r.t1 * settings.yearW;
+      r.x2 = r.t2 * settings.yearW;
+    }
+
+    // ---------- plans d'édition (M7b) : un plan oZ par pivot ----------
+    // Ordre de création des éditions, tous derrière le plan de base.
+    // Les individus déjà affichés dans le plan de base y restent (le
+    // layout garantit « première occurrence ») ; les lignes introduites
+    // par une édition rejoignent le plan de leur pivot (r.pivot).
+    const pillOf = editPillColors(getEdits ? getEdits() : []);
+    const planeIdx = new Map();
+    for (const e of (getEdits ? getEdits() : [])) {
+      if (!planeIdx.has(e.pivot)) planeIdx.set(e.pivot, planeIdx.size);
+    }
+    const usedPivots = new Set();
+    let zMin = 0;
+    for (const r of rows.values()) {
+      const idx = r.pivot != null ? planeIdx.get(r.pivot) : undefined;
+      if (idx != null) {
+        r.z = -PLANE_GAP * (idx + 1);
+        usedPivots.add(r.pivot);
+        zMin = Math.min(zMin, r.z);
+      } else {
+        r.z = 0;
+      }
     }
 
     // bornes du contenu (y retourné : oY Three pointe vers le haut)
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const r of rows.values()) {
-      const cy = -(r.y + BAR_H / 2);   // centre de la barre en monde
+      const cy = -(r.y + settings.barH / 2);   // centre de la barre en monde
       minX = Math.min(minX, r.x1); maxX = Math.max(maxX, r.x2);
       minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
     }
 
     // ---------- grille des années au sol ----------
     const floorY = minY - 44;
-    const minT = Math.floor(minX / YEAR_W), maxT = Math.ceil(maxX / YEAR_W);
+    const minT = Math.floor(minX / settings.yearW),
+          maxT = Math.ceil(maxX / settings.yearW);
     const span = maxT - minT;
     const step = span > 400 ? 100 : span > 150 ? 50 : span > 60 ? 25 : 10;
     for (let t = Math.ceil(minT / step) * step; t <= maxT; t += step) {
-      const x = t * YEAR_W;
+      const x = t * settings.yearW;
       const geo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(x, floorY, -70), new THREE.Vector3(x, floorY, 70)]);
+        new THREE.Vector3(x, floorY, Math.min(-70, zMin - 50)),
+        new THREE.Vector3(x, floorY, 70)]);
       const line = new THREE.Line(geo,
         new THREE.LineBasicMaterial({ color: 0xdbe2ea }));
       content.add(line);
@@ -276,6 +352,34 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         { w: 256, h: 64, scaleW: 46, scaleH: 12 });
       spr.position.set(x, floorY + 8, 76);
       content.add(spr);
+    }
+
+    // ---------- surfaces translucides des plans d'édition (M7b) ----------
+    // Une surface par plan réellement utilisé, teintée de la couleur de
+    // la pastille du pivot (remplissage très pâle + contour), ajoutée
+    // AVANT les barres (pas de userData.ids : jamais grisées au survol).
+    const padX = 40, padY = 30;
+    for (const piv of usedPivots) {
+      let px1 = Infinity, px2 = -Infinity, py1 = Infinity, py2 = -Infinity;
+      for (const r of rows.values()) {
+        if (r.pivot !== piv) continue;
+        px1 = Math.min(px1, r.x1); px2 = Math.max(px2, r.x2);
+        py1 = Math.min(py1, r.y); py2 = Math.max(py2, r.y + settings.barH);
+      }
+      const w = (px2 + padX) - (px1 - padX);
+      const h = (py2 + padY) - (py1 - padY);
+      const z = -PLANE_GAP * (planeIdx.get(piv) + 1);
+      const col = new THREE.Color(pillOf(piv));
+      const geo = new THREE.PlaneGeometry(w, h);
+      const surf = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        color: col, transparent: true, opacity: 0.05,
+        depthWrite: false, side: THREE.DoubleSide }));
+      surf.position.set((px1 + px2) / 2, -(py1 + py2) / 2, z);
+      content.add(surf);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo),
+        new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.35 }));
+      edges.position.copy(surf.position);
+      content.add(edges);
     }
 
     // ---------- barres + pastilles + étiquettes ----------
@@ -287,8 +391,9 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         color: 0xffffff, map: makeBarTexture(r, w),
         transparent: true, opacity: r.est ? 0.72 : 1 });
       if (r.id === currentRootId) mat.emissive = new THREE.Color(0x1d4ed8);
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, BAR_H, BAR_D), mat);
-      mesh.position.set(r.x1 + w / 2, -(r.y + BAR_H / 2), 0);   // y retourné
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(w, settings.barH, BAR_D), mat);
+      mesh.position.set(r.x1 + w / 2, -(r.y + settings.barH / 2), r.z);   // y retourné
       mesh.userData = { row: r, ids: [r.id], op0: mat.opacity };
       content.add(mesh);
       bars.push(mesh);
@@ -297,10 +402,10 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       // petite que la barre, transparente pour suivre le grisé au survol)
       if (r.alive) {
         const cone = new THREE.Mesh(
-          new THREE.ConeGeometry(BAR_H * 0.4, 7, 12),
+          new THREE.ConeGeometry(settings.barH * 0.4, 7, 12),
           new THREE.MeshBasicMaterial({ color: 0x2563eb, transparent: true }));
         cone.rotation.z = -Math.PI / 2;
-        cone.position.set(r.x2 + 12, -(r.y + BAR_H / 2), 0);
+        cone.position.set(r.x2 + 12, -(r.y + settings.barH / 2), r.z);
         cone.userData = { ids: [r.id], op0: 1 };
         content.add(cone);
       }
@@ -310,24 +415,27 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       const pc = r.pill ?? [PILL_BASE_COLOR];
       const n = pc.length;
       pc.forEach((cHex, i) => {
-        const bh = BAR_H / n;
+        const bh = settings.barH / n;
         const cube = new THREE.Mesh(
           new THREE.BoxGeometry(4.5, bh, 4.5),
           new THREE.MeshBasicMaterial({ color: new THREE.Color(cHex),
                                         transparent: true }));
-        cube.position.set(r.x2 + 5, -(r.y + bh / 2 + i * bh), 0);
+        cube.position.set(r.x2 + 5, -(r.y + bh / 2 + i * bh), r.z);
         cube.userData = { ids: [r.id], op0: 1 };
         content.add(cube);
       });
     }
 
     // ---------- repères de mariage + filiations (émis par layout.js) ----------
+    // Segments 3D en diagonale quand les extrémités sont sur des plans
+    // différents (M7b) : le mariage relie les z des deux conjoints, la
+    // filiation part du z moyen des lignes du couple source.
     for (const l of links) {
-      const x = l.year * YEAR_W;
+      const x = l.year * settings.yearW;
       if (l.kind === 'marr') {
         const geo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(x, -(l.rowA.y + BAR_H / 2), 0),
-          new THREE.Vector3(x, -(l.rowB.y + BAR_H / 2), 0)]);
+          new THREE.Vector3(x, -(l.rowA.y + settings.barH / 2), l.rowA.z),
+          new THREE.Vector3(x, -(l.rowB.y + settings.barH / 2), l.rowB.z)]);
         const line = new THREE.Line(geo,
           new THREE.LineBasicMaterial({ color: MARR_COL, transparent: true }));
         line.userData = { ids: l.ids, op0: 1 };
@@ -335,12 +443,16 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       } else {
         const cr = l.childRow;
         if (!cr) continue;
-        const cy = -(cr.y + BAR_H / 2);   // centre de la barre enfant (retourné)
+        const cy = -(cr.y + settings.barH / 2);   // centre de la barre enfant (retourné)
         const yFrom = -l.yFrom;
+        const fromRows = (l.fromRows ?? []).filter(Boolean);
+        const zFrom = fromRows.length
+          ? fromRows.reduce((s, fr) => s + fr.z, 0) / fromRows.length
+          : cr.z;
         const geo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(x, yFrom, 0),
-          new THREE.Vector3(x, (yFrom + cy) / 2, 0),
-          new THREE.Vector3(cr.x1 + 12, cy, 0)]);
+          new THREE.Vector3(x, yFrom, zFrom),
+          new THREE.Vector3(x, (yFrom + cy) / 2, (zFrom + cr.z) / 2),
+          new THREE.Vector3(cr.x1 + 12, cy, cr.z)]);
         const line = new THREE.Line(geo,
           new THREE.LineBasicMaterial({ color: LINK_COL, transparent: true }));
         line.userData = { ids: l.ids, op0: 1 };
@@ -349,8 +461,9 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     }
 
     setCamera('face');
-    log.info(`Vue 3D : ${rows.size} individu(s), ${links.length} lien(s) ` +
-      `(${upGen} gén. ascendants, ${downGen} gén. descendants)`);
+    log.info(`Vue 3D : ${rows.size} individu(s), ${links.length} lien(s)` +
+      (usedPivots.size ? `, ${usedPivots.size} plan(s) d'édition` : '') +
+      ` (${upGen} gén. ascendants, ${downGen} gén. descendants)`);
   }
 
   /* ------------------- caméra ------------------- */
@@ -442,7 +555,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   renderer.domElement.addEventListener('dblclick', (ev) => {
     const hit = pick(ev);
     if (hit) {
-      controls.target.set((hit.x1 + hit.x2) / 2, -(hit.y + BAR_H / 2), 0);
+      controls.target.set((hit.x1 + hit.x2) / 2, -(hit.y + settings.barH / 2), hit.z);
       controls.update();
     }
   });

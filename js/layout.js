@@ -16,7 +16,11 @@
  *  - branches d'édition M6a/M6b (fratrie, ascendants, descendants) :
  *    passes jusqu'à point fixe, solveur anti-chevauchement commun ;
  *  - liens émis en années + références de lignes posées : unions
- *    (kind 'marr') et filiations (kind 'fil', point de départ yFrom).
+ *    (kind 'marr') et filiations (kind 'fil', point de départ yFrom,
+ *    lignes sources fromRows pour le z de départ du segment en 3D) ;
+ *  - chaque ligne porte un `pivot` (null = plan de base) : le pivot de
+ *    l'édition qui l'a introduite — la vue 3D s'en sert pour décaler
+ *    les branches d'édition sur des plans parallèles (axe oZ, M7b).
  *
  * Les métriques (hauteur de ligne, écarts) sont paramétrables : la frise
  * travaille en pixels (TL_METRICS), la vue 3D en unités monde.
@@ -55,17 +59,18 @@ function heuristicMarr(rows) {
  * @param {number} [options.downGen=3] - générations de descendants initiales
  * @param {{rowH: number, gapRow: number, bandGap: number}}
  *   [options.metrics=TL_METRICS] - dimensions d'une ligne et écarts
- * @returns {{run: Function, setGenerations: Function}}
+ * @returns {{run: Function, setGenerations: Function, setMetrics: Function}}
  */
 export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen = 3,
                                      metrics = TL_METRICS }) {
-  const { rowH, gapRow, bandGap } = metrics;
+  let { rowH, gapRow, bandGap } = metrics;   // mutables : setMetrics()
   const placed = [];          // blocs déjà posés (détection de chevauchements)
   const rowMap = new Map();   // id -> première ligne posée
   const allRows = [];         // lignes dans l'ordre de placement
   const links = [];           // liens émis (unions + filiations)
   let markEdited = false;     // lignes créées pendant une édition → contour
   let markPill = PILL_BASE_COLOR;   // couleur de pastille courante (édition)
+  let markPivot = null;       // pivot de rattachement (M7b : plan oZ de la 3D)
 
   /** Ajoute la ligne d'un individu au bloc (mari inséré en tête). */
   function addPersonRow(node, p, nowYear) {
@@ -74,6 +79,7 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
     if (!l) return null;
     const row = { id: p.id, person: p, gen: node.gen,
                   edited: markEdited,
+                  pivot: markPivot,
                   pill: [markEdited ? markPill : PILL_BASE_COLOR], ...l };
     if (p.sex === 'M' && node.rows.length) node.rows.unshift(row);
     else node.rows.push(row);
@@ -203,6 +209,7 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
         const l = lifeYears(index.getIndividual(id), nowYear);
         return l ? { id, person: index.getIndividual(id), gen,
                      edited: markEdited,
+                     pivot: markPivot,
                      pill: [markEdited ? markPill : PILL_BASE_COLOR], ...l } : null;
       };
       unit.upRow = mkRow(fam.husband);     // père : au-dessus de l'enfant
@@ -262,11 +269,12 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
     links.push({ kind: 'marr', year: marr, rowA, rowB, ids });
   };
 
-  /** Filiation : du point d'union (année, hauteur yFrom) vers l'enfant. */
-  const emitFil = (year, yFrom, childId, ids) => {
+  /** Filiation : du point d'union (année, hauteur yFrom) vers l'enfant.
+   *  fromRows = lignes sources du couple (z de départ du segment en 3D). */
+  const emitFil = (year, yFrom, childId, ids, fromRows = []) => {
     const cr = rowMap.get(childId);
     if (!cr || year == null) return;
-    links.push({ kind: 'fil', year, yFrom, childRow: cr, ids });
+    links.push({ kind: 'fil', year, yFrom, childRow: cr, ids, fromRows });
   };
 
   /* ---------------- passe complète ---------------- */
@@ -280,7 +288,7 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
    */
   function run(rootId) {
     placed.length = 0; rowMap.clear(); allRows.length = 0; links.length = 0;
-    markEdited = false; markPill = PILL_BASE_COLOR;
+    markEdited = false; markPill = PILL_BASE_COLOR; markPivot = null;
     if (!rootId || !index.getIndividual(rootId)) {
       return { rows: rowMap, allRows, links, bounds: null };
     }
@@ -339,11 +347,13 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
         const seen = new Set([...rowMap.keys()]);
         markEdited = true;
         markPill = pillOf(e.pivot);
+        markPivot = e.pivot;
         const units = buildUpAncestors(e.pivot, 0, seen, e.depth, pivRow.gen);
         placeAncestors(units, pivRow);
         addPillBand(pivRow, markPill);
         markEdited = false;
         markPill = PILL_BASE_COLOR;
+        markPivot = null;
         units.forEach(collectAnc);
         ancUnits.push(...units);   // l'émission dessinera unions + filiations
         e._done = true; changed = true;
@@ -358,10 +368,12 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
         seen.delete(e.pivot);
         markEdited = true;
         markPill = pillOf(e.pivot);
+        markPivot = e.pivot;
         const node = buildDown(e.pivot, 0, seen, e.depth, pivRow.gen);
         markEdited = false;
         addPillBand(pivRow, markPill);
         markPill = PILL_BASE_COLOR;
+        markPivot = null;
         // nouveaux conjoints du pivot : sous sa ligne (solveur)
         let y = pivRow.y + rowH + gapRow;
         for (const r of node.rows) {
@@ -395,6 +407,7 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
         const pivPerson = index.getIndividual(e.pivot);
         if (!pivRow || !pivPerson) continue;
         markPill = pillOf(e.pivot);
+        markPivot = e.pivot;
         addPillBand(pivRow, markPill);
         // parents du pivot : unité existante (déjà liée) ou ajoutée ici
         let parentsUnit = findAncUnit(ancUnits, e.pivot);
@@ -407,6 +420,7 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
               const l = lifeYears(index.getIndividual(id), nowYear);
               return l ? { id, person: index.getIndividual(id),
                            gen: pivRow.gen - 1, edited: true,
+                           pivot: markPivot,
                            pill: [markPill], ...l } : null;
             };
             const u = { childId: e.pivot,
@@ -430,7 +444,7 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
           const kp = index.getIndividual(k);
           const unit = { personId: k, rows: [], smarr: null };
           const kl = lifeYears(kp, nowYear);
-          if (kl) unit.rows.push({ id: k, person: kp, gen: pivRow.gen, edited: true, pill: [markPill], ...kl });
+          if (kl) unit.rows.push({ id: k, person: kp, gen: pivRow.gen, edited: true, pivot: markPivot, pill: [markPill], ...kl });
           for (const sfid of kp.familyAsSpouse) {
             const sf = index.getFamily(sfid);
             if (!sf) continue;
@@ -439,7 +453,7 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
             const sp = index.getIndividual(sid);
             const sl = lifeYears(sp, nowYear);
             if (!sl) continue;
-            const srow = { id: sid, person: sp, gen: pivRow.gen, edited: true, pill: [markPill], ...sl };
+            const srow = { id: sid, person: sp, gen: pivRow.gen, edited: true, pivot: markPivot, pill: [markPill], ...sl };
             if (sp.sex === 'M') unit.rows.unshift(srow); else unit.rows.push(srow);
             if (unit.smarr == null) unit.smarr = sf.marriage.value?.year ?? null;
           }
@@ -461,6 +475,7 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
           sibPlacements.push({ unit, parentsUnit });
         }
         markPill = PILL_BASE_COLOR;
+        markPivot = null;
         e._done = true; changed = true;
       }
 
@@ -484,7 +499,8 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
             ? (mainRow.y + pu.spouseRow.y) / 2 + rowH / 2
             : mainRow.y + node.h;
           emitFil(marr, yFrom, sub.pid,
-            [mainRow.id, pu.spouseRow?.id, sub.pid].filter(Boolean));
+            [mainRow.id, pu.spouseRow?.id, sub.pid].filter(Boolean),
+            [mainRow, pu.spouseRow].filter(Boolean));
         }
         walkDown(sub);
       }
@@ -503,7 +519,8 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
           const midY = u.upRow && u.downRow
             ? (u.upRow.y + u.downRow.y) / 2 + rowH / 2
             : r.y + rowH / 2;
-          emitFil(marr, midY, u.childId, ids);
+          emitFil(marr, midY, u.childId, ids,
+            [u.upRow, u.downRow].filter(Boolean));
         }
       }
       if (u.upRow) u.upRow.branch.forEach(walkAnc);
@@ -528,7 +545,8 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
           const midY = parentsUnit.upRow && parentsUnit.downRow
             ? (parentsUnit.upRow.y + parentsUnit.downRow.y) / 2 + rowH / 2
             : (parentsUnit.upRow ?? parentsUnit.downRow).y + rowH / 2;
-          emitFil(marr, midY, unit.personId, ids);
+          emitFil(marr, midY, unit.personId, ids,
+            [parentsUnit.upRow, parentsUnit.downRow].filter(Boolean));
         }
       }
     }
@@ -552,7 +570,8 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
         if (marr != null) {
           const yFrom = sr ? (mainRow.y + sr.y) / 2 + rowH / 2 : mainRow.y + rowH;
           emitFil(marr, yFrom, sub.pid,
-            [mainRow.id, sr?.id, sub.pid].filter(Boolean));
+            [mainRow.id, sr?.id, sub.pid].filter(Boolean),
+            [mainRow, sr].filter(Boolean));
         }
         walkExtraDown(sub);
       }
@@ -572,5 +591,6 @@ export function createFamilyLayout({ index, getEdits = null, upGen = 3, downGen 
   return {
     run,
     setGenerations: (u, d) => { upGen = u; downGen = d; },
+    setMetrics: (m) => { Object.assign(metrics, m); ({ rowH, gapRow, bandGap } = metrics); },
   };
 }
