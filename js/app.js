@@ -7,6 +7,8 @@
  * d'affichage M6 (branches extensibles, registre partagé par les vues).
  * M8b : fiche individu complète dans un panneau latéral escamotable
  * (clic simple, menu contextuel ou bouton du panneau détail).
+ * M9b : isolation d'un plan d'édition dans la vue 3D — entrée du menu
+ * contextuel, clic sur la surface du plan, clic sur le fond = rétablir.
  */
 import { logger } from './logger.js';
 import { readGedcomFile } from './gedcomLoader.js';
@@ -138,6 +140,25 @@ async function handleFile(file) {
         items.push({ label: 'Retirer : ' + names[t]
           + (t !== 'siblings' ? ` (${ed.depth} gén.)` : ''),
           action: () => { edits.remove(person.id, t); refreshViews(); } });
+      }
+      // ---- isolation des plans (M9b, vue 3D uniquement) ----
+      // « Isoler ce plan » sur l'individu cliqué (plan de base compris)
+      // tant qu'il existe au moins un plan d'édition, et « Rétablir »
+      // tant qu'une isolation est active.
+      if (activeView === 'view3d' && view3dApi?.planeCount() > 1) {
+        const iso = view3dApi.getIsolation();   // undefined = aucune, null = base
+        const plane = view3dApi.planeOf(person.id);
+        if (iso !== undefined) {
+          pushSep();
+          items.push({ label: 'Rétablir tous les plans',
+            action: () => view3dApi.clearIsolation() });
+        }
+        if (iso !== plane) {
+          pushSep();
+          items.push({
+            label: plane === null ? 'Isoler le plan de base' : 'Isoler ce plan',
+            action: () => view3dApi.isolatePlane(person.id) });
+        }
       }
       ctxMenu.show(event, items);
     };
