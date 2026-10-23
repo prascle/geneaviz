@@ -5,6 +5,8 @@
  * vue chronologique. Barre de vues partagée : générations, recentrage,
  * plein écran. Menu contextuel (clic droit) : détail, racine, et éditions
  * d'affichage M6 (branches extensibles, registre partagé par les vues).
+ * M8b : fiche individu complète dans un panneau latéral escamotable
+ * (clic simple, menu contextuel ou bouton du panneau détail).
  */
 import { logger } from './logger.js';
 import { readGedcomFile } from './gedcomLoader.js';
@@ -16,6 +18,7 @@ import { initTimeline } from './timeline.js';
 import { initView3d } from './view3d.js';
 import { formatDate } from './utils.js';
 import { initContextMenu } from './contextmenu.js';
+import { buildDetail, detailHtml } from './gedcomDetail.js';
 import { createEdits, siblingIds, baseScope, potentialIds } from './edits.js';
 
 const log = logger('app');
@@ -30,6 +33,8 @@ const treeSection = document.getElementById('tree-section');
 const timelineSection = document.getElementById('timeline-section');
 const view3dSection = document.getElementById('view3d-section');
 const detailsEl = document.getElementById('details');
+const fichePanel = document.getElementById('fiche-panel');
+const ficheBody = document.getElementById('fiche-body');
 
 /**
  * Affiche un message de statut dans la page.
@@ -91,6 +96,7 @@ async function handleFile(file) {
     const onContextPerson = (person, event) => {
       const items = [
         { label: 'Voir le détail', action: () => showDetails(index, person.id) },
+        { label: 'Fiche complète', action: () => showFiche(index, person.id) },
         { label: 'Définir comme racine',
           action: () => { showDetails(index, person.id); setRoot(person.id); } },
       ];
@@ -140,14 +146,14 @@ async function handleFile(file) {
     treeApi = initTree({
       container: document.getElementById('tree-container'),
       index,
-      onSelectNode: (id) => showDetails(index, id),
+      onSelectNode: (id) => { showDetails(index, id); showFiche(index, id); },
       onContextPerson,
       getEdits: () => edits.all(),
     });
     timelineApi = initTimeline({
       container: document.getElementById('timeline-container'),
       index,
-      onSelectPerson: (id) => showDetails(index, id),   // clic gauche : détail seul (racine via menu contextuel)
+      onSelectPerson: (id) => { showDetails(index, id); showFiche(index, id); },   // clic gauche : détail + fiche (racine via menu contextuel)
       onContextPerson,
       getEdits: () => edits.all(),
     });
@@ -158,7 +164,7 @@ async function handleFile(file) {
     view3dApi = initView3d({
       container: document.getElementById('view3d-container'),
       index,
-      onSelectPerson: (id) => showDetails(index, id),   // détail seul, comme la chrono
+      onSelectPerson: (id) => { showDetails(index, id); showFiche(index, id); },   // détail + fiche, comme la chrono
       onContextPerson,
       getEdits: () => edits.all(),
     });
@@ -170,7 +176,7 @@ async function handleFile(file) {
     initSearchBar({
       container,
       searchService,
-      onSelect: (id) => { showDetails(index, id); setRoot(id); },
+      onSelect: (id) => { showDetails(index, id); showFiche(index, id); setRoot(id); },
     });
     searchSection.hidden = false;
     detailSection.hidden = false;
@@ -289,6 +295,24 @@ Dans la console :
 }
 
 /**
+ * Affiche la fiche complète d'un individu (M8b) dans le panneau latéral :
+ * extraction paresseuse au moment de l'ouverture, puis ouverture du panneau.
+ * @param {Object} index - index applicatif
+ * @param {string} id - xref de l'individu sélectionné
+ * @returns {void}
+ */
+function showFiche(index, id) {
+  const detail = buildDetail(index, id);
+  if (!detail) {
+    ficheBody.textContent = `Individu introuvable : ${id}`;
+  } else {
+    ficheBody.innerHTML = detailHtml(detail);
+  }
+  fichePanel.classList.add('open');
+  fichePanel.setAttribute('aria-hidden', 'false');
+}
+
+/**
  * Affiche le détail complet d'un individu dans le panneau dédié.
  * @param {Object} index - index applicatif
  * @param {string} id - xref de l'individu sélectionné
@@ -329,13 +353,28 @@ function showDetails(index, id) {
     <tr><td>Décès</td><td>${dateHtml(p.death, 'vivant·e (présumé)')}</td></tr>
     ${famRows.join('')}
     <tr><td>Identifiant</td><td><code>${p.id}</code></td></tr>
-  </table>`;
+  </table>
+  <button type="button" id="btn-fiche">Fiche complète ▸</button>`;
+  detailsEl.querySelector('#btn-fiche')
+    ?.addEventListener('click', () => showFiche(index, id));
   log.info(`Détail affiché pour ${p.id}`);
 }
 
 document.getElementById('file').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (file) handleFile(file);
+});
+
+// ---------- Panneau latéral « fiche individu » (M8b) : fermeture ----------
+document.getElementById('fiche-close').addEventListener('click', () => {
+  fichePanel.classList.remove('open');
+  fichePanel.setAttribute('aria-hidden', 'true');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && fichePanel.classList.contains('open')) {
+    fichePanel.classList.remove('open');
+    fichePanel.setAttribute('aria-hidden', 'true');
+  }
 });
 
 log.info('GeneaViz M6 prêt — sélectionner un fichier .ged');

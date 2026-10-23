@@ -323,18 +323,32 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
     else svg.call(zoomBeh.transform, t);
   }
 
-  /** Contenu HTML de l'infobulle (complet : dates, unions, enfants). */
+  /** Contenu HTML de l'infobulle (complet : dates, unions, enfants).
+   *  M8b : ligne de contexte supplémentaire (profession, lieux). */
   function buildTooltipHtml(p) {
     const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
       (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const dHtml = (d) => yearLabel(d)
       + (d.status === 'estimated' && d.estimatedFrom
           ? ` <small>(${esc(d.estimatedFrom)})</small>` : '');
+    const rawKids = p.raw?.children ?? [];
+    const occu = rawKids.find((c) => c.tag === 'OCCU');
+    const plac = (tag) => rawKids.find((c) => c.tag === tag)
+      ?.children?.find((c) => c.tag === 'PLAC')?.value;
+    const short = (s) => (s ?? '').split(',')[0].trim() || null;
+    const parts = [];
+    if (occu?.value) parts.push(esc(occu.value));
+    const b = short(plac('BIRT'));
+    if (b) parts.push(`° <span title="lieu de naissance">${esc(b)}</span>`);
+    const d = short(plac('DEAT'));
+    if (d) parts.push(`† <span title="lieu de décès">${esc(d)}</span>`);
+    const extra = parts.length ? `<div class="tip-extra">${parts.join(' · ')}</div>` : '';
     const rows = [
       `<div class="tip-name">${esc((p.name.surname || '?').toUpperCase())} ${esc(p.name.given)}</div>`,
       `<div class="tip-dates">naissance ${dHtml(p.birth)}`
         + (p.death.status === 'living' ? ' · vivant·e'
            : ` · décès ${dHtml(p.death)}`) + '</div>',
+      extra,
     ];
     for (const famId of p.familyAsSpouse) {
       const fam = index.getFamily(famId);
