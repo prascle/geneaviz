@@ -21,9 +21,10 @@
  *    diagonale entre plans) ;
  *  - grille des années au « sol », presets caméra (frise / dessus /
  *    perspective), OrbitControls (rotation, zoom, pan) ;
- *  - panneau de réglages (M7b/M9a) : épaisseur des barres, écarts couple /
- *    couple-enfants, échelle du temps, épaisseur des liens, brouillard
- *    de profondeur (bornes recalculées par rapport à la caméra).
+ *  - panneau de réglages (M7b/M9a/M9b) : épaisseur des barres, écarts
+ *    couple / couple-enfants, échelle du temps, épaisseur des liens,
+ *    brouillard de profondeur (bornes recalculées par rapport à la
+ *    caméra), bascule caméra perspective ↔ orthographique.
  * Interactions : clic gauche = détail, clic droit = menu contextuel,
  * double-clic = viser l'individu, survol = surbrillance de famille,
  * clic sur la surface d'un plan d'édition = isoler ce plan (M9b : les
@@ -112,11 +113,48 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   scene.background = new THREE.Color(0xffffff);
   scene.fog = new THREE.Fog(0xffffff, 2000, 9000);
 
-  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 50000);
+  const FOV = 50;    // champ de la perspective — référence du cadrage (M9b)
+  const perspCam = new THREE.PerspectiveCamera(FOV, 1, 0.1, 50000);
+  // Frustum orthographique recalé à la volée (M9b) : bornes unitaires
+  // ici, syncFrustum() y applique le cadrage de la perspective.
+  const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -1e5, 1e5);
+  let camera = perspCam;   // caméra active (bascule du panneau Réglages)
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
+
+  /**
+   * Recale le frustum orthographique (M9b) sur le cadrage qu'aurait la
+   * perspective à la même distance : demi-hauteur = tan(fov/2) ×
+   * distance, demi-largeur = demi-hauteur × aspect du cadre. Appelée à
+   * la bascule, au resize (aspect) et aux presets (distance) — jamais
+   * au pan ni au zoom molette en ortho (OrbitControls joue alors sur
+   * camera.zoom, indépendant du frustum : la taille apparente est
+   * stable, comme attendu en orthographique).
+   */
+  function syncFrustum() {
+    const d = orthoCam.position.distanceTo(controls.target);
+    const h = Math.tan((FOV * Math.PI / 180) / 2) * d;
+    const w = h * (container.clientWidth || 1) / (container.clientHeight || 1);
+    orthoCam.left = -w; orthoCam.right = w;
+    orthoCam.top = h; orthoCam.bottom = -h;
+    orthoCam.updateProjectionMatrix();
+  }
+
+  /** Bascule perspective ↔ orthographique (M9b) — même point de vue. */
+  function setOrtho(on) {
+    const to = on ? orthoCam : perspCam;
+    if (camera === to) return;
+    to.position.copy(camera.position);
+    to.quaternion.copy(camera.quaternion);
+    to.zoom = 1;
+    camera = to;
+    controls.object = camera;
+    if (on) syncFrustum();
+    controls.update();
+    log.info('Vue 3D : caméra ' + (on ? 'orthographique' : 'perspective'));
+  }
 
   scene.add(new THREE.AmbientLight(0xffffff, 1.1));
   const dir = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -250,6 +288,19 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
       settings[key] = parseFloat(input.value);
       applySetting(key);
     });
+    row.append(lab, val, input);
+    panel.appendChild(row);
+  }
+  // Bascule de caméra (M9b) : perspective ↔ orthographique.
+  {
+    const row = document.createElement('div');
+    row.className = 'v3d-set-row';
+    const lab = document.createElement('label');
+    lab.textContent = 'Caméra orthographique';
+    const val = document.createElement('span');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.addEventListener('change', () => setOrtho(input.checked));
     row.append(lab, val, input);
     panel.appendChild(row);
   }
@@ -575,7 +626,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   };
   const fitDist = (size) =>
     Math.max(size.x, size.y * 1.6, 150) * 1.15 /
-    (2 * Math.tan((camera.fov * Math.PI / 180) / 2));
+    (2 * Math.tan((FOV * Math.PI / 180) / 2));
 
   /** Place la caméra selon un preset (frise / dessus / perspective). */
   function setCamera(preset) {
@@ -590,6 +641,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     }
     controls.target.copy(c);
     controls.update();
+    if (camera === orthoCam) syncFrustum();   // cadrage à la nouvelle distance
   }
 
   /* ------------------- interactions ------------------- */
@@ -632,8 +684,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
    * épaissis (M9a), le reste estompé (opacité 0,1). Isolation (M9b) :
    * les objets des autres plans sont estompés (opacité 0,07) —
    * prioritaire sur le survol ; les surfaces de plans suivent (plan
-   * isolé renforcé, autres plans quasi effacés) ; la barre du pivot du
-   * plan isolé reste visible (le pivot vit sur le plan de base).
+   * isolé renforcé, autres plans quasi effacés).
    */
   function applyLook() {
     const fam = hovered ? familySet(index, hovered.person) : null;
@@ -647,13 +698,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         return;
       }
       if (!ud.ids) return;
-      // M9b : le pivot du plan isolé reste visible — sa barre vit sur le
-      // plan de base et disparaissait avec lui à l'isolation (barre,
-      // pastille et cône du pivot seulement, pas les liens de sa famille
-      // qui restent régis par les plans de leurs extrémités).
-      const isPivot = isolated != null && ud.ids.length === 1
-        && ud.ids[0] === isolated;
-      const act = planeActive(o) || isPivot;
+      const act = planeActive(o);
       const inFam = !!fam && ud.ids.every((i) => fam.has(i));
       o.material.opacity = !act ? Math.min(ud.op0, 0.07)
         : fam && !inFam ? 0.1 : ud.op0;
@@ -720,8 +765,9 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     const w = container.clientWidth || 640;
     const h = container.clientHeight || 400;
     renderer.setSize(w, h);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+    perspCam.aspect = w / h;
+    perspCam.updateProjectionMatrix();
+    if (camera === orthoCam) syncFrustum();   // aspect du frustum (M9b)
     syncLinkRes();
   };
   if (typeof ResizeObserver !== 'undefined') {
