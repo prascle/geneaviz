@@ -4,7 +4,7 @@ Application web 100 % client (JavaScript ES modules + HTML) pour l'exploration d
 généalogiques au format GEDCOM. Trois vues : arbre générationnel (D3),
 chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
 
-## État : jalon M7a — vue 3D (squelette du graphe de base)
+## État : jalon M7b — plans d'édition 3D + panneau de réglages
 
 - `js/logger.js` — traces module par module, niveaux DEBUG/INFO/WARN/ERROR.
 - `js/utils.js` — parsing/formatage des dates GEDCOM (y compris ABT/BEF/AFT), debounce.
@@ -62,6 +62,14 @@ chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
   et `js/tooltip.js` (infobulle partagée frise + 3D). Au passage, correctif des
   liens des branches « descendants » ajoutées au-delà du premier niveau (émission
   récursive), valable aussi pour la frise.
+- M7b — `js/view3d.js` + `js/layout.js` : plans d'édition décalés en profondeur (oZ) —
+  chaque branche ajoutée par une édition rejoint le plan de son pivot d'édition
+  (ordre de création, derrière le plan de base qui reste prioritaire pour les
+  individus multi-plans), un plan matérialisé par une surface translucide teintée
+  de la couleur pastille du pivot ; liens de mariage/filiation en diagonale entre
+  plans ; grille des années étendue à tous les plans ; panneau « Réglages »
+  (épaisseur des barres, écart dans le couple, écart couple–enfants, échelle du
+  temps) qui recalcule le layout partagé à la volée (la frise reste inchangée).
 
 ## Utilisation
 
@@ -80,7 +88,10 @@ Le bouton **3D** de la barre de vues active la vue 3D : molette = zoom, glisser 
 rotation, presets caméra (Frise / Dessus / Perspective) en haut à droite du cadre ;
 clic (détail), clic droit (menu contextuel) et double-clic (centrer) y sont
 fonctionnels comme dans les autres vues, ainsi que le survol (surbrillance de
-famille + infobulle).
+famille + infobulle). Les éditions d'affichage s'y matérialisent par des plans
+parallèles décalés en profondeur (une couleur par pivot, surface translucide),
+reliés au graphe par des liens en diagonale ; le panneau « Réglages » (sous les
+presets) ajuste l'épaisseur des barres, les écarts et l'échelle du temps.
 
 Niveau de trace : ajouter `?log=DEBUG` à l'URL (ou `localStorage.setItem('genea:logLevel','DEBUG')`).
 
