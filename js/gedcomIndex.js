@@ -15,8 +15,11 @@
  * valeur brute read-gedcom ("12 JAN 1873", "ABT 1875", "AFT 1930"…) : l'estimateur
  * (dateEstimator.js) et les vues conservent exactement le même comportement.
  *
- * Sémantique héritée du parseur M0 (préservée) : en cas de valeurs multiples
- * (NAME, SEX, BIRT, DEAT, MARR), la DERNIÈRE occurrence porteuse d'une date gagne ;
+ * Sémantique héritée du parseur M0 : en cas de valeurs multiples (SEX, BIRT,
+ * DEAT, MARR), la DERNIÈRE occurrence porteuse d'une date gagne. EXCEPTION
+ * NAME (correctif 2026-10-24) : priorité au NAME de TYPE birth, sinon le
+ * PREMIER NAME — le nom de naissance / nom de jeune fille doit primer sur les
+ * noms ultérieurs (nom de femme mariée en 2e position, etc.).
  * `events[].date` est la valeur du nœud événement (pas son DATE enfant), la fiche
  * M8b fera l'extraction riche.
  */
@@ -58,8 +61,17 @@ export function buildIndex(gedcom) {
       raw: sel[0],   // nœud brut read-gedcom { tag, pointer, value, children }
     };
 
-    // NAME : la dernière occurrence gagne (comme le parseur M0).
-    const nameValue = sel.getName().value().at(-1);
+    // NAME : priorité au nom de naissance (TYPE birth), sinon le PREMIER NAME.
+    // (Le DERNIER gagnait auparavant : un nom de femme mariée en 2e position
+    // écrasait le nom de jeune fille.)
+    const nameNodes = sel.getName().arraySelect();
+    let nameValue = nameNodes.length ? nameNodes[0].value()[0] ?? null : null;
+    for (const n of nameNodes) {
+      if ((n.get('TYPE').value()[0] ?? '').toLowerCase() === 'birth') {
+        nameValue = n.value()[0];
+        break;
+      }
+    }
     if (nameValue != null) person.name = parseName(nameValue);
 
     // SEX : la dernière occurrence gagne.

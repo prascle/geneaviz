@@ -10,12 +10,18 @@
  * `buildDetail(index, id)` retourne une structure normalisée consommable par
  * l'UI ; `detailHtml(detail)` en produit le rendu HTML (échappé).
  *
- * Contenu : identité (noms multiples avec TYPE, surnom, suffixe, sexe, xref,
- * date de modification CHAN), événements datés avec lieux et cause de décès
+ * Contenu : identité (nom retenu, surnom, suffixe, sexe, xref, date de
+ * modification CHAN), événements datés avec lieux et cause de décès
  * (BIRT/BAPM/CHR/DEAT/BURI/CREM), professions (OCCU datées), résidences
  * (RESI), familles (parents avec lien PEDI, unions avec mariage/divorce et
  * enfants), notes (inline ou records), sources (citations avec PAGE, titres
  * résolus).
+ *
+ * Correctif 2026-10-24 (décision Paul) : le nom retenu suit la même règle que
+ * l'index (priorité au NAME de TYPE birth, sinon le PREMIER NAME) et la fiche
+ * n'affiche PLUS les noms alternatifs (noms de femme mariée) — seul le nom
+ * retenu est montré. `names[]` et `primaryValue` restent exposés dans la
+ * structure normalisée (API inchangée).
  */
 import { parseGedcomDate, formatDate, parseName } from './utils.js';
 
@@ -111,9 +117,6 @@ function sourceTitle(resolve, xref) {
 /* Libellés français                                                    */
 /* ------------------------------------------------------------------ */
 
-/** Libellés des types de nom (TYPE de NAME). */
-const NAME_TYPE_FR = { birth: 'naissance', married: 'marié·e', aka: 'alias', alias: 'alias' };
-
 /** Libellés des liens parentaux (PEDI de FAMC). */
 const PEDI_FR = { adopted: 'adoption', foster: "famille d'accueil", sealing: 'scellement' };
 
@@ -147,12 +150,15 @@ export function buildDetail(index, id) {
   const resolveSource = makeRecordResolver(gedcom, (g) => g.getSourceRecord());
 
   // ---------- Identité ----------
+  // Nom retenu : même règle que l'index (priorité TYPE birth, sinon le
+  // premier NAME) — le nom de jeune fille prime sur le nom de femme mariée.
   const names = kids(raw, 'NAME').map((n) => {
     const parsed = parseName(val(n) ?? '');
     const type = val(kid(n, 'TYPE'));
     return { value: val(n) ?? '', ...parsed, type };
   });
-  const primaryValue = names.length ? names[names.length - 1].value : null;
+  const primaryName = names.find((n) => (n.type ?? '').toLowerCase() === 'birth') ?? names[0] ?? null;
+  const primaryValue = primaryName ? primaryName.value : null;
 
   const changedDate = formatGedcomDateRich(val(kid(kid(raw, 'CHAN'), 'DATE')));
 
@@ -298,16 +304,8 @@ export function detailHtml(d) {
   out.push(`<div class="fiche-sub">${d.sex === 'M' ? 'Masculin' : d.sex === 'F' ? 'Féminin' : 'Sexe inconnu'}`
     + ` · <code>${esc(d.id)}</code>${d.changed ? ` · modifié le ${esc(d.changed)}` : ''}</div>`);
 
-  const altNames = d.names.filter((n) => n.value !== d.primaryValue);
-  if (altNames.length || d.nick) {
-    const lines = [];
-    for (const n of altNames) {
-      const t = n.type ? (NAME_TYPE_FR[n.type.toLowerCase()] ?? n.type) : null;
-      lines.push(`<div class="fiche-line"><span class="lab">Nom</span> ${esc(n.value)}`
-        + (t ? ` <span class="fiche-qual">(${esc(t)})</span>` : '') + '</div>');
-    }
-    if (d.nick) lines.push(`<div class="fiche-line"><span class="lab">Surnom</span> ${esc(d.nick)}</div>`);
-    out.push(lines.join(''));
+  if (d.nick) {
+    out.push(`<div class="fiche-line"><span class="lab">Surnom</span> ${esc(d.nick)}</div>`);
   }
 
   // ----- Événements -----
