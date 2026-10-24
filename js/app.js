@@ -9,6 +9,10 @@
  * (clic simple, menu contextuel ou bouton du panneau détail).
  * M9b : isolation d'un plan d'édition dans la vue 3D — entrée du menu
  * contextuel, clic sur la surface du plan, clic sur le fond = rétablir.
+ * M9c : chaîne de parenté entre deux individus quelconques (module
+ * relation.js, BFS sur l'index complet) — A et B choisis par menu
+ * contextuel, surbrillance persistante dans les trois vues + panneau
+ * texte dédié (phrase et étapes).
  */
 import { logger } from './logger.js';
 import { readGedcomFile } from './gedcomLoader.js';
@@ -21,9 +25,15 @@ import { initView3d } from './view3d.js';
 import { formatDate } from './utils.js';
 import { initContextMenu } from './contextmenu.js';
 import { buildDetail, detailHtml } from './gedcomDetail.js';
+import { findRelationChain, chainToText } from './relation.js';
 import { createEdits, siblingIds, baseScope, potentialIds } from './edits.js';
 
 const log = logger('app');
+
+/** Échappe un texte pour un affichage HTML sûr (M9c : panneau chaîne). */
+const escHtml = (s) => String(s).replace(/[&<>"']/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;',
+             '"': '&quot;', "'": '&#39;' }[c]));
 let treeApi = null;         // vue arbre combiné
 let timelineApi = null;     // vue chronologique
 let view3dApi = null;       // vue 3D (M7)
@@ -160,8 +170,123 @@ async function handleFile(file) {
             action: () => view3dApi.isolatePlane(person.id) });
         }
       }
+      // ---- chaîne de parenté entre deux individus (M9c) ----
+      // A et B sont choisis par menu contextuel dans n'importe quelle
+      // vue ; le calcul se fait sur l'index complet (indépendant du
+      // graphe affiché et des éditions).
+      {
+        pushSep();
+        const chainHint = (id) => {
+          const p = id ? index.getIndividual(id) : null;
+          return p
+            ? `(${(p.name.surname || '?').toUpperCase()} ${p.name.given})`.trim()
+            : '';
+        };
+        items.push({ label: 'Chaîne : définir A', hint: chainHint(chainA),
+          action: () => { chainA = person.id; applyChain(); } });
+        items.push({ label: 'Chaîne : définir B', hint: chainHint(chainB),
+          action: () => { chainB = person.id; applyChain(); } });
+        if (chainA || chainB) {
+          items.push({ label: 'Chaîne : effacer', action: () => clearChain() });
+        }
+      }
       ctxMenu.show(event, items);
     };
+
+    // ---------- Chaîne de parenté A→B (M9c) ----------
+    // Surbrillance persistante dans les trois vues + panneau texte
+    // dédié (phrase de parenté et étapes détaillées).
+    let chainA = null, chainB = null;
+    const chainPanel = document.getElementById('chain-panel');
+    const chainTitle = document.getElementById('chain-title');
+    const chainBody = document.getElementById('chain-body');
+
+    /** Applique la chaîne A→B : panneau + surbrillance des trois vues. */
+    function applyChain() {
+      if (chainA && chainB) {
+        const chain = findRelationChain(index, chainA, chainB);
+        const ids = chain ? new Set(chain.ids) : null;
+        const pairs = chain ? new Set(chain.links.map((l) =>
+          l.from < l.to ? l.from + '|' + l.to : l.to + '|' + l.from)) : null;
+        treeApi.setChain(ids, pairs);
+        timelineApi.setChain(ids, pairs);
+        view3dApi.setChain(ids, pairs);
+        const nameOf = (id) => {
+          const p = index.getIndividual(id);
+          return p
+            ? `${(p.name.surname || '?').toUpperCase()} ${p.name.given}`.trim()
+            : id;
+        };
+        chainTitle.textContent = 'Chaîne de parenté' +
+          (chain ? ` — ${chain.distance} lien(s)` : '');
+        chainBody.innerHTML = chain
+          ? `<p class="chain-sentence">${escHtml(chainToText(chain))}</p>` +
+            '<ol>' + chain.links.map((l) =>
+              `<li><em>${escHtml(l.label)}</em> : ` +
+              `${escHtml(nameOf(l.from))} → ${escHtml(nameOf(l.to))}</li>`)
+              .join('') + '</ol>'
+          : '<p>Aucun chemin de parenté trouvé entre ces deux individus.</p>';
+        chainPanel.hidden = false;
+        chainPanel.setAttribute('aria-hidden', 'false');
+        setStatus(chain
+          ? `Chaîne : ${chain.distance} lien(s) entre A et B.`
+          : 'Chaîne : aucun chemin de parenté trouvé.');
+      } else {
+        // un seul point défini : on attend l'autre
+        const p = index.getIndividual(chainA ?? chainB);
+        if (p) setStatus(`Chaîne : ${chainA ? 'A' : 'B'} = ` +
+          `${(p.name.surname || '?').toUpperCase()} ${p.name.given} — ` +
+          `définir ${chainA ? 'B' : 'A'} par clic droit sur un autre individu.`);
+      }
+    }
+
+    /** Efface la chaîne (menu, ✕ du panneau ou Échap). */
+    function clearChain() {
+      chainA = null; chainB = null;
+      treeApi.setChain(null, null);
+      timelineApi.setChain(null, null);
+      view3dApi.setChain(null, null);
+      chainPanel.hidden = true;
+      chainPanel.setAttribute('aria-hidden', 'true');
+    }
+
+    document.getElementById('chain-close').addEventListener('click', clearChain);
+    document.addEventListener('keydown', (e) => {
+      // Échap ferme d'abord la fiche (M8b), sinon la chaîne (M9c)
+      if (e.key === 'Escape' && !fichePanel.classList.contains('open')
+          && !chainPanel.hidden) clearChain();
+    });
+
+    // ---------- Étirage du panneau chaîne (poignée bas-droite) ----------
+    // Le redimensionnement natif CSS (resize: both) garde le coin
+    // haut-gauche fixe : sur un panneau ancré en bas à gauche, il étire
+    // vers le bas, hors de l'écran. Le drag manuel ci-dessous conserve
+    // l'ancrage : vers la droite = élargir, vers le haut = agrandir.
+    const chainGrip = document.getElementById('chain-grip');
+    const clampNum = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+    let gripStart = null;
+    chainGrip.addEventListener('pointerdown', (e) => {
+      gripStart = {
+        x: e.clientX, y: e.clientY,
+        w: chainPanel.offsetWidth, h: chainPanel.offsetHeight,
+        // bornes : la place disponible dans #workspace, moins la marge
+        maxW: chainPanel.parentElement.clientWidth - 16,
+        maxH: chainPanel.parentElement.clientHeight - 16,
+      };
+      chainGrip.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    chainGrip.addEventListener('pointermove', (e) => {
+      if (!gripStart) return;
+      // 15rem × 8rem = minimums du CSS ; le maximum CSS (40rem, 100vh-5rem)
+      // borne de toute façon les valeurs trop grandes.
+      chainPanel.style.width = clampNum(gripStart.w + e.clientX - gripStart.x,
+        240, gripStart.maxW) + 'px';
+      chainPanel.style.height = clampNum(gripStart.h - (e.clientY - gripStart.y),
+        128, gripStart.maxH) + 'px';
+    });
+    chainGrip.addEventListener('pointerup', () => { gripStart = null; });
+    chainGrip.addEventListener('pointercancel', () => { gripStart = null; });
     
     // ---------- Vues (arbre + chronologique) : réglages partagés ----------
     treeApi = initTree({

@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>GeneaViz — M9b : vue 3D — isolation des plans et caméra ortho (arbre, chronologique, 3D)</title>
+<title>GeneaViz — M9c : chaîne de parenté entre deux individus (arbre, chronologique, 3D)</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.4rem; }
@@ -129,6 +129,41 @@
   #view3d-settings .v3d-set-row input[type="range"] { width: 100%; }
   #view3d-settings .v3d-set-row input[type="checkbox"] { justify-self: end; }
 
+  /* chaîne de parenté entre deux individus (M9c) */
+  #chain-panel { position: absolute; left: 8px; bottom: 8px; z-index: 40;
+    max-width: min(40rem, calc(100vw - 2rem)); max-height: calc(100vh - 5rem);
+    min-width: 15rem; min-height: 8rem;
+    background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
+    box-shadow: 6px -6px 22px rgba(0,0,0,.16);
+    display: flex; flex-direction: column; overflow: hidden; }
+  #chain-panel[hidden] { display: none; }
+  #chain-head { display: flex; justify-content: space-between; align-items: center;
+    padding: .4rem .7rem; border-bottom: 1px solid #e5e7eb; background: #f8fafc; }
+  #chain-head strong { font-size: .85rem; }
+  #chain-close { border: none; background: none; font-size: 15px;
+    cursor: pointer; color: #555; padding: .1rem .3rem; }
+  #chain-close:hover { color: #111; }
+  /* panneau extensible : le corps garde sa hauteur de 11rem par défaut
+     (flex-basis) et suit la taille du panneau étiré par la poignée
+     (voir #chain-grip), avec défilement interne. */
+  #chain-body { padding: .5rem .75rem; font-size: 13px; line-height: 1.5;
+    flex: 1 1 11rem; min-height: 0; overflow-y: auto; }
+  /* poignée d'étirage en bas à droite : le resize natif (resize: both)
+     étire vers le bas à coin haut-gauche fixe — inutilisable sur un
+     panneau ancré en bas à gauche ; le drag manuel (app.js) conserve
+     l'ancrage : vers la droite = élargir, vers le haut = agrandir. */
+  #chain-grip { position: absolute; right: 0; bottom: 0; width: 16px;
+    height: 16px; cursor: nwse-resize; touch-action: none;
+    border-bottom-right-radius: 7px;
+    background: repeating-linear-gradient(135deg, #94a3b8 0 1.5px, transparent 1.5px 5px); }
+  #chain-grip:hover { background: repeating-linear-gradient(135deg, #475569 0 1.5px, transparent 1.5px 5px); }
+  #chain-body .chain-sentence { margin: 0; }
+  #chain-body ol { margin: .45rem 0 0; padding-left: 1.25rem; }
+  #chain-body li { margin-bottom: .12rem; }
+  .tree-node.chain rect, .tl-box.chain rect { stroke: #d97706; stroke-width: 2.4; }
+  .tree-link.chain, .spouse-link.chain, .tl-link.chain, .tl-marry.chain
+    { stroke: #d97706; opacity: 1; }
+
   /* panneau latéral « fiche individu » (M8b) */
   #workspace { position: relative; }
   #fiche-panel { position: absolute; top: 0; right: 0; bottom: 0; z-index: 50;
@@ -175,7 +210,7 @@
 </script>
 </head>
 <body>
-<h1>GeneaViz — M9b : vue 3D — isolation des plans et caméra ortho (arbre, chronologique, 3D)</h1>
+<h1>GeneaViz — M9c : chaîne de parenté entre deux individus (arbre, chronologique, 3D)</h1>
 
 <p>
   <label for="file">Fichier GEDCOM :</label>
@@ -227,6 +262,16 @@
       <button type="button" id="fiche-close" title="Fermer la fiche">✕</button>
     </div>
     <div id="fiche-body">Sélectionner un individu pour afficher sa fiche complète.</div>
+  </aside>
+
+  <!-- chaîne de parenté entre deux individus (M9c) -->
+  <aside id="chain-panel" hidden aria-hidden="true">
+    <div id="chain-head">
+      <strong id="chain-title">Chaîne de parenté</strong>
+      <button type="button" id="chain-close" title="Effacer la chaîne">✕</button>
+    </div>
+    <div id="chain-body"></div>
+    <div id="chain-grip" title="Étirer le panneau : vers la droite = élargir, vers le haut = agrandir"></div>
   </aside>
 </div>
 

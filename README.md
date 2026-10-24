@@ -4,7 +4,7 @@ Application web 100 % client (JavaScript ES modules + HTML) pour l'exploration d
 généalogiques au format GEDCOM. Trois vues : arbre générationnel (D3),
 chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
 
-## État : jalon M9b — vue 3D : isolation des plans et caméra orthographique
+## État : jalon M9c — chaîne de parenté entre deux individus
 
 - `js/logger.js` — traces module par module, niveaux DEBUG/INFO/WARN/ERROR.
 - `js/utils.js` — parsing/formatage des dates GEDCOM (y compris ABT/BEF/AFT), debounce.
@@ -100,7 +100,7 @@ chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
 - M9a — `js/view3d.js` : liens de mariage/filiation en traits épais — migration de
   THREE.Line/LineBasicMaterial vers `Line2`/`LineMaterial`/`LineGeometry` (addons
   `three/addons/lines/`, importmap inchangée) ; épaisseur réglable en pixels CSS
-  (0,5 à 6, défaut 2) ; au survol d'un individu les liens de sa famille sont
+  (0,5 à 6, défaut 1) ; au survol d'un individu les liens de sa famille sont
   épaissis (×2,5) pour accompagner la surbrillance ; brouillard de profondeur
   réglable (0–100, 0 = désactivé) dont les bornes sont recalculées à chaque image
   relativement à la distance caméra–cible (effet stable quel que soit le zoom) ;
@@ -119,6 +119,21 @@ chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
   de vue à la bascule (frustum calé sur le cadrage de la perspective,
   demi-hauteur = tan(fov/2) × distance), recalculé au resize et aux presets,
   taille apparente stable au pan et au zoom molette.
+- M9c — `js/relation.js` (nouveau) + `js/app.js` + les trois vues : chaîne de
+  parenté entre deux individus quelconques — parcours BFS sur l'index complet
+  (parents, enfants, conjoints ; indépendant de la racine affichée et des
+  éditions), plus court chemin traduit en libellés français orientés
+  « X est le … de Y » (père, mère, fils, fille, conjoint·e — genre selon le
+  sexe de X). A et B se définissent par le menu contextuel (« Chaîne :
+  définir A », puis « définir B », avec rappel du choix courant) ; la chaîne
+  se dessine en ambre dans les trois vues, le reste est estompé (liens de la
+  chaîne épaissis ×2,5 en 3D), elle se compose avec le survol (un membre
+  n'est jamais estompé) et survit aux réglages et changements de racine ;
+  l'isolation d'un plan reste prioritaire (les membres hors du plan isolé
+  sont estompés). Panneau dédié en bas à gauche : phrase complète (« A est
+  le fils de X, qui est le père de Y, … ») et liste des liens, étirable par
+  la poignée en bas à droite (vers la droite = élargir, vers le haut =
+  agrandir) ; fermeture par ✕, Échap ou « Chaîne : effacer ».
 
 ## Utilisation
 
@@ -150,6 +165,13 @@ liens (×2,5 sur la famille survolée) et bascule caméra perspective/orthograph
 surface d'un plan d'édition l'isole (les autres plans s'estompent, la barre du
 pivot reste visible) ; le clic sur le fond ou l'entrée « Rétablir tous les
 plans » du menu contextuel affiche de nouveau l'ensemble.
+Le clic droit définit aussi une **chaîne de parenté** entre deux individus
+(M9c) : « Chaîne : définir A » puis « définir B » sur deux individus
+quelconques — le plus court chemin de parenté (père/mère, fils/fille,
+conjoint·e) est mis en évidence en ambre dans les trois vues et détaillé dans
+le panneau en bas à gauche (phrase complète et liste des liens) ; panneau
+étirable par sa poignée en bas à droite, effacement par ✕, Échap ou « Chaîne :
+effacer ».
 Les fichiers anciens non-UTF-8 (CP1252/ANSI, UTF-16, ANSEL…) sont désormais
 correctement décodés ; un fichier mal formé (sans en-tête HEAD, sans trailer
 TRLR, niveaux incohérents) est refusé avec un message explicite.
@@ -198,3 +220,10 @@ Après chargement d'un fichier :
   (plane / planes) et un seul parcours (applyLook) compose survol et
   isolation — l'isolation prime sur le survol ; les surfaces de plans sont
   pickables (raycast indépendant de l'opacité).
+- Chaîne de parenté (M9c) : `js/relation.js` est un module pur (BFS
+  parents/enfants/conjoints sur l'index complet, libellés orientés
+  « from est le … de to », banc de test node) ; les vues reçoivent la chaîne
+  par `setChain(ids, paires)` — membres + paires de liens consécutifs — et la
+  composent avec le survol dans leur rendu ; en 3D, le parcours unique
+  d'opacités compose survol, isolation et chaîne : l'isolation de plan reste
+  prioritaire sur la chaîne (choix validé à l'usage).

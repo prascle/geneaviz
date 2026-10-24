@@ -364,20 +364,56 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
     return rows.join('');
   }
 
-  /** Estompe le graphe hors famille de l'individu survolé. */
+  /* ---------------- chaîne de parenté A→B (M9c) ---------------- */
+
+  /** Ids des membres et paires des liens consécutifs — null = aucune. */
+  let chainIds = null;
+  let chainPairs = null;
+
+  const inChain = (id) => !!chainIds && chainIds.has(id);
+
+  /** Le lien relie-t-il deux membres consécutifs de la chaîne ? */
+  function linkInChain(l) {
+    if (!chainPairs || !l.ids) return false;
+    for (let i = 0; i < l.ids.length; i++) {
+      for (let j = i + 1; j < l.ids.length; j++) {
+        const k = l.ids[i] < l.ids[j]
+          ? l.ids[i] + '|' + l.ids[j] : l.ids[j] + '|' + l.ids[i];
+        if (chainPairs.has(k)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Surbrillance persistante de la chaîne (M9c) : membres et liens de
+   *  la chaîne en évidence, le reste estompé. */
+  function applyChain() {
+    gView.selectAll('g.tree-node')
+      .classed('chain', (n) => !n.ghost && inChain(n.id))
+      .classed('dim', (n) => !n.ghost && chainIds && !inChain(n.id));
+    gView.selectAll('path.tree-link, line.spouse-link')
+      .classed('chain', (l) => linkInChain(l))
+      .classed('dim', (l) => chainIds && !linkInChain(l));
+  }
+
+  /** Estompe le graphe hors famille de l'individu survolé
+   *  (les membres de la chaîne restent en évidence, M9c). */
   function highlightFamily(person) {
     const fam = familySet(index, person);
     gView.selectAll('g.tree-node')
-      .classed('dim', (n) => !n.ghost && !fam.has(n.id))
+      .classed('dim', (n) => !n.ghost && !fam.has(n.id) && !inChain(n.id))
       .classed('hl', (n) => !n.ghost && fam.has(n.id) && n.id !== person.id);
-    gView.selectAll('path.tree-link').classed('dim', (l) => !l.ids.every((i) => fam.has(i)));
-    gView.selectAll('line.spouse-link').classed('dim', (l) => !l.ids.every((i) => fam.has(i)));
+    gView.selectAll('path.tree-link').classed('dim', (l) => !l.ids.every((i) => fam.has(i)) && !linkInChain(l));
+    gView.selectAll('line.spouse-link').classed('dim', (l) => !l.ids.every((i) => fam.has(i)) && !linkInChain(l));
   }
 
-  /** Rétablit l'opacité normale. */
+  /** Rétablit l'opacité normale (hors chaîne persistante, M9c). */
   function clearHighlight() {
-    gView.selectAll('g.tree-node').classed('dim', false).classed('hl', false);
-    gView.selectAll('path.tree-link, line.spouse-link').classed('dim', false);
+    gView.selectAll('g.tree-node')
+      .classed('dim', (n) => !n.ghost && chainIds && !inChain(n.id))
+      .classed('hl', false);
+    gView.selectAll('path.tree-link, line.spouse-link')
+      .classed('dim', (l) => chainIds && !linkInChain(l));
   }
 
   /** Ajoute rect + textes + interactions à une sélection de cartes. */
@@ -1039,6 +1075,7 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
     drawCards(node);
 
     resetView(false);
+    applyChain();   // chaîne A→B persistante d'un rendu à l'autre (M9c)
     log.info('Vue combinée dessinée : ' + out.cards.size + ' carte(s), ' +
       unions.length + ' trait(s) d\'union, ' + upGen + ' gén. ascendants, ' +
       downGen + ' gén. descendants');
@@ -1050,5 +1087,8 @@ export function initTree({ container, index, upGen = 3, downGen = 3, onSelectNod
     getRootId: () => currentRootId,
     setGenerations: (up, down) => { upGen = up; downGen = down; update(currentRootId); },
     reset: () => resetView(true),
+    /** Définit/efface la chaîne de parenté (M9c) : ids (Set) des membres
+     *  + paires « idA|idB » des liens consécutifs, null = aucune. */
+    setChain: (ids, pairs) => { chainIds = ids; chainPairs = pairs; applyChain(); },
   };
 }
