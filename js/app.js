@@ -48,6 +48,35 @@ const detailsEl = document.getElementById('details');
 const fichePanel = document.getElementById('fiche-panel');
 const ficheBody = document.getElementById('fiche-body');
 
+// ---------- Thème clair / sombre / automatique (M10) ----------
+const themeSelect = document.getElementById('theme-select');
+const THEME_KEY = 'genea:theme';
+const themeMode = () => localStorage.getItem(THEME_KEY) || 'auto';
+const mediaDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+/**
+ * Applique le thème demandé : pose data-theme sur <html> (« auto » résolu
+ * via prefers-color-scheme) et mémorise le choix (localStorage). L'UI,
+ * l'arbre et la frise sont recolorés instantanément par les variables CSS ;
+ * la vue 3D (textures et matériaux peints au rendu) est rebâtie en
+ * conservant caméra, isolation de plan et chaîne de parenté.
+ * @param {string} mode - 'light' | 'dark' | 'auto'
+ */
+function applyTheme(mode) {
+  const dark = mode === 'dark' || (mode === 'auto' && mediaDark.matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  localStorage.setItem(THEME_KEY, mode);
+  if (view3dApi && view3dApi.getRootId && view3dApi.getRootId()) {
+    view3dApi.update(view3dApi.getRootId(), { keepCamera: true });
+  }
+}
+
+themeSelect.value = themeMode();   // synchronise le sélecteur (choix mémorisé)
+themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
+mediaDark.addEventListener('change', () => {   // « auto » suit l'environnement
+  if (themeMode() === 'auto') applyTheme('auto');
+});
+
 /**
  * Affiche un message de statut dans la page.
  * @param {string} msg - message à afficher

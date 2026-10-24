@@ -2,130 +2,175 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<title>GeneaViz — M9c : chaîne de parenté entre deux individus (arbre, chronologique, 3D)</title>
+<title>GeneaViz — M10 : thème clair / sombre / automatique (arbre, chronologique, 3D)</title>
+<script>
+  // Thème initial avant le premier rendu (M10) : le sélecteur et le suivi de
+  // l'environnement sont pilotés par js/app.js ; ce script inline évite un
+  // flash de thème clair au chargement en mode sombre.
+  (function () {
+    var t = localStorage.getItem('genea:theme') || 'auto';
+    var dark = t === 'dark' ||
+      (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  })();
+</script>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
+  /* Thème clair / sombre / automatique (M10) : la palette vit en variables
+     CSS ; le mode actif est porté par html[data-theme="light"|"dark"]
+     (choix mémorisé dans localStorage 'genea:theme', « auto » suit
+     prefers-color-scheme). L'UI, l'arbre et la frise sont recolorés
+     instantanément par le CSS ; la vue 3D (textures et matériaux peints au
+     rendu) est rebâtie par app.js au changement de thème. */
+  :root { color-scheme: light;
+    --bg: #ffffff; --fg: #000000; --fg-strong: #111; --fg-2: #333;
+    --muted: #555; --muted-2: #666; --muted-3: #999;
+    --border: #e5e7eb; --border-strong: #cbd5e1; --border-input: #ccc;
+    --panel: #ffffff; --panel-alt: #f8fafc;
+    --status-bg: #f4f6f8; --status-error: #fde8e8; --pre-bg: #f8f8f8;
+    --hover: #eff6ff; --hover-row: #f0f7ff; --selected: #dbeafe;
+    --accent: #2563eb; --accent-contrast: #ffffff;
+    --chart-bg: #ffffff; --node-text: #000000; --chart-text: #1f2937;
+    --card: #ffffff; --card-m: #dbeafe; --card-f: #fce7f3; --card-ghost: #fafafa;
+    --dates: #555; --est: #b45309; --spouse: #b45309;
+    --link: #94a3b8; --grid: #eef1f4; --tick: #666;
+  }
+  html[data-theme="dark"] { color-scheme: dark;
+    --bg: #0f172a; --fg: #e2e8f0; --fg-strong: #f1f5f9; --fg-2: #cbd5e1;
+    --muted: #94a3b8; --muted-2: #94a3b8; --muted-3: #64748b;
+    --border: #334155; --border-strong: #3f4d63; --border-input: #475569;
+    --panel: #1e293b; --panel-alt: #172033;
+    --status-bg: #1e293b; --status-error: #422020; --pre-bg: #1e293b;
+    --hover: #1e3a5f; --hover-row: #16283f; --selected: #1e3a8a;
+    --accent: #2563eb; --accent-contrast: #ffffff;
+    --chart-bg: #0f172a; --node-text: #e2e8f0; --chart-text: #e2e8f0;
+    --card: #1e293b; --card-m: #1e3a5f; --card-f: #422740; --card-ghost: #1a2433;
+    --dates: #94a3b8; --est: #f59e0b; --spouse: #d97706;
+    --link: #64748b; --grid: #1e293b; --tick: #94a3b8;
+  }
+  body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; padding: 0 1rem;
+    background: var(--bg); color: var(--fg); }
   h1 { font-size: 1.4rem; }
   h2 { font-size: 1.1rem; margin-top: 1.5rem; }
-  #status { margin: 1rem 0; padding: .75rem 1rem; background: #f4f6f8; border-radius: 6px; }
-  #status.error { background: #fde8e8; }
+  #status { margin: 1rem 0; padding: .75rem 1rem; background: var(--status-bg); border-radius: 6px; }
+  #status.error { background: var(--status-error); }
   .search-fields { display: flex; gap: .5rem; flex-wrap: wrap; }
-  .search-fields input { padding: .5rem; border: 1px solid #ccc; border-radius: 6px; min-width: 12rem; }
-  .search-fields button { padding: .5rem 1rem; border: none; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; }
-  .search-status { color: #555; margin: .5rem 0; }
+  .search-fields input { padding: .5rem; border: 1px solid var(--border-input); border-radius: 6px; min-width: 12rem; }
+  .search-fields button { padding: .5rem 1rem; border: none; border-radius: 6px; background: var(--accent); color: var(--accent-contrast); cursor: pointer; }
+  .search-status { color: var(--muted); margin: .5rem 0; }
   .search-results { list-style: none; padding: 0; margin: 0; }
   .search-result { display: flex; justify-content: space-between; gap: 1rem;
-    padding: .5rem .75rem; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: .5rem .75rem; border: 1px solid var(--border); border-radius: 6px;
     margin-bottom: .35rem; cursor: pointer; }
-  .search-result:hover { background: #f0f7ff; }
-  .search-result.selected { background: #dbeafe; border-color: #2563eb; }
-  .result-dates { color: #555; white-space: nowrap; }
-  #details { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin-top: .5rem; }
+  .search-result:hover { background: var(--hover-row); }
+  .search-result.selected { background: var(--selected); border-color: var(--accent); }
+  .result-dates { color: var(--muted); white-space: nowrap; }
+  #details { background: var(--panel-alt); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-top: .5rem; }
   #details table { border-collapse: collapse; }
   #details td { padding: .25rem .75rem .25rem 0; vertical-align: top; }
-  #details td:first-child { color: #666; }
-  .est { color: #b45309; font-style: italic; }
-  pre { background: #f8f8f8; padding: 1rem; overflow: auto; }
+  #details td:first-child { color: var(--muted-2); }
+  .est { color: var(--est); font-style: italic; }
+  pre { background: var(--pre-bg); padding: 1rem; overflow: auto; }
   #view-bar { display: flex; gap: .5rem; align-items: center; margin: 1rem 0; flex-wrap: wrap; }
-  .view-btn { padding: .45rem 1rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
-  .view-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
-  #view-bar select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
-  #view-bar label { display: flex; gap: .3rem; align-items: center; color: #555; }
-  .vsep { width: 1px; height: 1.6rem; background: #e5e7eb; margin: 0 .4rem; }
-  #btn-reset { padding: .45rem .9rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
-  #btn-fullscreen { padding: .45rem .9rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
-  #workspace:fullscreen { background: #fff; padding: 1rem 1.5rem; }
+  .view-btn { padding: .45rem 1rem; border: 1px solid var(--border-input); border-radius: 6px; background: var(--panel); cursor: pointer; }
+  .view-btn.active { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+  #view-bar select { padding: .3rem; border: 1px solid var(--border-input); border-radius: 6px; }
+  #view-bar label { display: flex; gap: .3rem; align-items: center; color: var(--muted); }
+  .vsep { width: 1px; height: 1.6rem; background: var(--border); margin: 0 .4rem; }
+  #btn-reset { padding: .45rem .9rem; border: 1px solid var(--border-input); border-radius: 6px; background: var(--panel); cursor: pointer; }
+  #btn-fullscreen { padding: .45rem .9rem; border: 1px solid var(--border-input); border-radius: 6px; background: var(--panel); cursor: pointer; }
+  #workspace:fullscreen { background: var(--chart-bg); padding: 1rem 1.5rem; }
   .ctx-menu { position: fixed; z-index: 1100; display: none; min-width: 15rem;
-    background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px;
     box-shadow: 0 6px 20px rgba(0,0,0,.15); padding: .3rem 0; font-size: 13px; }
   .ctx-item { padding: .45rem .9rem; cursor: pointer; }
-  .ctx-item:hover { background: #eff6ff; }
+  .ctx-item:hover { background: var(--hover); }
   .ctx-item.disabled { color: #9ca3af; cursor: default; }
   .ctx-item.disabled:hover { background: none; }
-  .ctx-separator { height: 1px; background: #e5e7eb; margin: .3rem 0; }
-  #tree-controls { display: flex; gap: 1.25rem; align-items: center; margin: .5rem 0; color: #555; flex-wrap: wrap; }
+  .ctx-separator { height: 1px; background: var(--border); margin: .3rem 0; }
+  #tree-controls { display: flex; gap: 1.25rem; align-items: center; margin: .5rem 0; color: var(--muted); flex-wrap: wrap; }
   #tree-controls label { display: flex; gap: .35rem; align-items: center; }
-  #tree-controls select { padding: .3rem; border: 1px solid #ccc; border-radius: 6px; }
-  #tree-controls button { padding: .3rem .8rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
-  #tree-container { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 8px; height: 32rem; background: #fff; }
-  .tree-link { fill: none; stroke: #94a3b8; stroke-width: 1.5; }
-  .spouse-link { stroke: #b45309; stroke-width: 1.5; }
+  #tree-controls select { padding: .3rem; border: 1px solid var(--border-input); border-radius: 6px; }
+  #tree-controls button { padding: .3rem .8rem; border: 1px solid var(--border-input); border-radius: 6px; background: var(--panel); cursor: pointer; }
+  #tree-container { overflow: hidden; border: 1px solid var(--border); border-radius: 8px; height: 32rem; background: var(--chart-bg); }
+  .tree-link { fill: none; stroke: var(--link); stroke-width: 1.5; }
+  .spouse-link { stroke: var(--spouse); stroke-width: 1.5; }
   .tree-node { cursor: pointer; }
-  .tree-node rect { fill: #fff; stroke: #cbd5e1; stroke-width: 1; }
-  .tree-node rect.m { fill: #dbeafe; }
-  .tree-node rect.f { fill: #fce7f3; }
-  .tree-node rect.root { stroke: #2563eb; stroke-width: 2; }
-  .tree-node rect.est { stroke: #b45309; stroke-dasharray: 4 3; }
-  .tree-node rect.ghost { fill: #fafafa; stroke: #cbd5e1; stroke-dasharray: 3 3; }
+  .tree-node rect { fill: var(--card); stroke: var(--border-strong); stroke-width: 1; }
+  .tree-node rect.m { fill: var(--card-m); }
+  .tree-node rect.f { fill: var(--card-f); }
+  .tree-node rect.root { stroke: var(--accent); stroke-width: 2; }
+  .tree-node rect.est { stroke: var(--est); stroke-dasharray: 4 3; }
+  .tree-node rect.ghost { fill: var(--card-ghost); stroke: var(--border-strong); stroke-dasharray: 3 3; }
   /* individus issus d'une édition M6 : fond hachuré (arbre) / contour (chrono) */
   .tree-node rect.hatch { fill: url(#hatchEdit); }
+  #hatchEdit line { stroke: var(--link); }   /* M10 : suit le thème (surcharge l'attribut SVG) */
   .tl-box rect.edit { stroke: #64748b; stroke-width: 1.4; }
-  .tree-node text { font-size: 12px; }
+  .tree-node text { font-size: 12px; fill: var(--node-text); }
   .tree-node .node-name { font-weight: 600; }
-  .tree-node .node-dates { fill: #555; }
-  .tree-node .node-dates.est { fill: #b45309; font-style: italic; }
-  .tree-node .node-dates.ghost-label { fill: #999; font-style: italic; }
+  .tree-node .node-dates { fill: var(--dates); }
+  .tree-node .node-dates.est { fill: var(--est); font-style: italic; }
+  .tree-node .node-dates.ghost-label { fill: var(--muted-3); font-style: italic; }
   .tree-node, .tl-box, .tree-link, .spouse-link, .tl-link { transition: opacity .18s; }
   .tree-node.dim, .tl-box.dim { opacity: .22; }
-  .tree-node.hl rect, .tl-box.hl rect { stroke: #2563eb; stroke-width: 2; }
-  .tree-link.dim, .spouse-link.dim, .tl-link.dim { opacity: .1; }  
+  .tree-node.hl rect, .tl-box.hl rect { stroke: var(--accent); stroke-width: 2; }
+  .tree-link.dim, .spouse-link.dim, .tl-link.dim { opacity: .1; }
   .tree-tip { position: fixed; z-index: 1000; display: none; max-width: 22rem;
-    background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px;
     padding: .6rem .8rem; box-shadow: 0 4px 14px rgba(0,0,0,.12);
     pointer-events: none; font-size: 13px; line-height: 1.45; }
   .tree-tip .tip-name { font-weight: 600; }
-  .tree-tip .tip-dates { color: #555; }
-  .tree-tip .tip-fam { color: #555; }
-  .tree-tip .tip-id { color: #999; font-size: 11px; }
-  .tip-extra { color: #555; }
-  #timeline-controls { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; color: #555; font-size: .85rem; }
-  #timeline-container { overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
-  .tl-grid { stroke: #eef1f4; stroke-width: 1; }
-  .tl-tick { font-size: 10px; fill: #666; }
+  .tree-tip .tip-dates { color: var(--muted); }
+  .tree-tip .tip-fam { color: var(--muted); }
+  .tree-tip .tip-id { color: var(--muted-3); font-size: 11px; }
+  .tip-extra { color: var(--muted); }
+  #timeline-controls { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; color: var(--muted); font-size: .85rem; }
+  #timeline-container { overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--chart-bg); }
+  .tl-grid { stroke: var(--grid); stroke-width: 1; }
+  .tl-tick { font-size: 10px; fill: var(--tick); }
   .tl-box { cursor: pointer; }
-  .tl-box rect { fill: #fff; stroke: #cbd5e1; stroke-width: 1; }
-  .tl-box rect.m { fill: #dbeafe; }
-  .tl-box rect.f { fill: #fce7f3; }
+  .tl-box rect { fill: var(--card); stroke: var(--border-strong); stroke-width: 1; }
+  .tl-box rect.m { fill: var(--card-m); }
+  .tl-box rect.f { fill: var(--card-f); }
   /* générations relatives à l'individu survolé (vue chrono) */
   .tl-box rect.g0  { stroke: #475569; stroke-width: 1.6; }   /* sa génération */
   .tl-box rect.g-1 { stroke: #7c3aed; stroke-width: 1.6; }   /* parents */
   .tl-box rect.g1  { stroke: #0e7490; stroke-width: 1.6; }   /* enfants */
-  .tl-box rect.root { stroke: #2563eb; stroke-width: 2; }
-  .tl-box rect.est { stroke: #b45309; stroke-dasharray: 4 3; }
+  .tl-box rect.root { stroke: var(--accent); stroke-width: 2; }
+  .tl-box rect.est { stroke: var(--est); stroke-dasharray: 4 3; }
   .tl-box rect.alive { stroke-dasharray: 2 2; }
-  .tl-box text { font-size: 10px; fill: #1f2937; pointer-events: none; }
-  .tl-box:hover rect { stroke: #2563eb; }
-  .tl-link { fill: none; stroke: #94a3b8; stroke-width: 1.2; }
-  .tl-marry { stroke: #b45309; stroke-width: 2; }
+  .tl-box text { font-size: 10px; fill: var(--chart-text); pointer-events: none; }
+  .tl-box:hover rect { stroke: var(--accent); }
+  .tl-link { fill: none; stroke: var(--link); stroke-width: 1.2; }
+  .tl-marry { stroke: var(--spouse); stroke-width: 2; }
   .tl-marry.dim { opacity: .1; }
   /* mini-éditeur de générations dans le menu contextuel (M6b) */
   .ctx-editor { display: flex; gap: .45rem; align-items: center;
     padding: .45rem .9rem; font-size: 13px; }
   .ctx-editor input { width: 3.4rem; padding: .15rem .3rem;
-    border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px; }
-  .ctx-editor button { padding: .15rem .5rem; border: 1px solid #cbd5e1;
-    border-radius: 4px; background: #eff6ff; cursor: pointer; font-size: 13px; }
+    border: 1px solid var(--border-strong); border-radius: 4px; font-size: 13px; }
+  .ctx-editor button { padding: .15rem .5rem; border: 1px solid var(--border-strong);
+    border-radius: 4px; background: var(--hover); cursor: pointer; font-size: 13px; }
 
   /* vue 3D (M7a) : le canvas Three.js remplit le cadre */
-  #view3d-container { overflow: hidden; border: 1px solid #e5e7eb;
-    border-radius: 8px; height: 32rem; background: #fff; position: relative; }
+  #view3d-container { overflow: hidden; border: 1px solid var(--border);
+    border-radius: 8px; height: 32rem; background: var(--chart-bg); position: relative; }
   #view3d-presets { position: absolute; top: 8px; right: 8px;
     display: flex; gap: .35rem; z-index: 5; }
   #view3d-presets button { padding: .15rem .5rem; font-size: 12px;
-    border: 1px solid #cbd5e1; border-radius: 4px; background: #fff;
+    border: 1px solid var(--border-strong); border-radius: 4px; background: var(--panel);
     cursor: pointer; }
-  #view3d-presets button:hover { background: #eff6ff; }
+  #view3d-presets button:hover { background: var(--hover); }
 
   /* panneau de réglages de la vue 3D (M7b) */
   #view3d-settings { position: absolute; top: 44px; right: 8px; z-index: 5;
-    background: #fff; border: 1px solid #cbd5e1; border-radius: 6px;
+    background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px;
     font-size: 12px; padding: .35rem .55rem; min-width: 11rem; }
-  #view3d-settings summary { cursor: pointer; color: #555; padding: .1rem .15rem; }
+  #view3d-settings summary { cursor: pointer; color: var(--muted); padding: .1rem .15rem; }
   #view3d-settings .v3d-set-row { display: grid;
     grid-template-columns: auto 1.6rem 1fr; gap: .35rem;
     align-items: center; padding: .18rem .15rem; }
-  #view3d-settings .v3d-set-row label { color: #333; white-space: nowrap; }
-  #view3d-settings .v3d-set-row span { text-align: right; color: #555; }
+  #view3d-settings .v3d-set-row label { color: var(--fg-2); white-space: nowrap; }
+  #view3d-settings .v3d-set-row span { text-align: right; color: var(--muted); }
   #view3d-settings .v3d-set-row input[type="range"] { width: 100%; }
   #view3d-settings .v3d-set-row input[type="checkbox"] { justify-self: end; }
 
@@ -133,16 +178,16 @@
   #chain-panel { position: absolute; left: 8px; bottom: 8px; z-index: 40;
     max-width: min(40rem, calc(100vw - 2rem)); max-height: calc(100vh - 5rem);
     min-width: 15rem; min-height: 8rem;
-    background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px;
     box-shadow: 6px -6px 22px rgba(0,0,0,.16);
     display: flex; flex-direction: column; overflow: hidden; }
   #chain-panel[hidden] { display: none; }
   #chain-head { display: flex; justify-content: space-between; align-items: center;
-    padding: .4rem .7rem; border-bottom: 1px solid #e5e7eb; background: #f8fafc; }
+    padding: .4rem .7rem; border-bottom: 1px solid var(--border); background: var(--panel-alt); }
   #chain-head strong { font-size: .85rem; }
   #chain-close { border: none; background: none; font-size: 15px;
-    cursor: pointer; color: #555; padding: .1rem .3rem; }
-  #chain-close:hover { color: #111; }
+    cursor: pointer; color: var(--muted); padding: .1rem .3rem; }
+  #chain-close:hover { color: var(--fg-strong); }
   /* panneau extensible : le corps garde sa hauteur de 11rem par défaut
      (flex-basis) et suit la taille du panneau étiré par la poignée
      (voir #chain-grip), avec défilement interne. */
@@ -155,7 +200,7 @@
   #chain-grip { position: absolute; right: 0; bottom: 0; width: 16px;
     height: 16px; cursor: nwse-resize; touch-action: none;
     border-bottom-right-radius: 7px;
-    background: repeating-linear-gradient(135deg, #94a3b8 0 1.5px, transparent 1.5px 5px); }
+    background: repeating-linear-gradient(135deg, var(--link) 0 1.5px, transparent 1.5px 5px); }
   #chain-grip:hover { background: repeating-linear-gradient(135deg, #475569 0 1.5px, transparent 1.5px 5px); }
   #chain-body .chain-sentence { margin: 0; }
   #chain-body ol { margin: .45rem 0 0; padding-left: 1.25rem; }
@@ -168,31 +213,31 @@
   #workspace { position: relative; }
   #fiche-panel { position: absolute; top: 0; right: 0; bottom: 0; z-index: 50;
     width: min(24rem, calc(100vw - 2rem));
-    background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px;
     box-shadow: -6px 8px 22px rgba(0,0,0,.18);
     display: flex; flex-direction: column; overflow: hidden;
     transform: translateX(108%); visibility: hidden;
     transition: transform .22s ease, visibility .22s; }
   #fiche-panel.open { transform: translateX(0); visibility: visible; }
   #fiche-head { display: flex; justify-content: space-between; align-items: center;
-    padding: .5rem .75rem; border-bottom: 1px solid #e5e7eb; background: #f8fafc; }
+    padding: .5rem .75rem; border-bottom: 1px solid var(--border); background: var(--panel-alt); }
   #fiche-head strong { font-size: .95rem; }
   #fiche-close { border: none; background: none; font-size: 15px;
-    cursor: pointer; color: #555; padding: .1rem .3rem; }
-  #fiche-close:hover { color: #111; }
+    cursor: pointer; color: var(--muted); padding: .1rem .3rem; }
+  #fiche-close:hover { color: var(--fg-strong); }
   #fiche-body { padding: .75rem; overflow-y: auto; font-size: 13.5px; line-height: 1.55; }
-  #btn-fiche { margin-top: .6rem; padding: .3rem .8rem; border: 1px solid #cbd5e1;
-    border-radius: 6px; background: #eff6ff; cursor: pointer; font-size: 13px; }
-  #btn-fiche:hover { background: #dbeafe; }
+  #btn-fiche { margin-top: .6rem; padding: .3rem .8rem; border: 1px solid var(--border-strong);
+    border-radius: 6px; background: var(--hover); cursor: pointer; font-size: 13px; }
+  #btn-fiche:hover { background: var(--selected); }
   .fiche-title { font-size: 1.08rem; font-weight: 700; }
-  .fiche-sub { color: #666; margin-bottom: .4rem; }
+  .fiche-sub { color: var(--muted-2); margin-bottom: .4rem; }
   .fiche-h { margin: .9rem 0 .3rem; font-size: .75rem; text-transform: uppercase;
-    letter-spacing: .05em; color: #2563eb;
-    border-bottom: 1px solid #e5e7eb; padding-bottom: .15rem; }
+    letter-spacing: .05em; color: var(--accent);
+    border-bottom: 1px solid var(--border); padding-bottom: .15rem; }
   .fiche-line { margin: .18rem 0; }
-  .fiche-line .lab, .fiche-src .lab, .fiche-qual { color: #666; font-style: italic; }
+  .fiche-line .lab, .fiche-src .lab, .fiche-qual { color: var(--muted-2); font-style: italic; }
   .fiche-line .lab { font-style: normal; margin-right: .15rem; }
-  .fiche-note { background: #f8fafc; border-left: 3px solid #cbd5e1;
+  .fiche-note { background: var(--panel-alt); border-left: 3px solid var(--border-strong);
     padding: .35rem .5rem; margin: .3rem 0; white-space: pre-wrap; }
   .fiche-src { margin: .18rem 0; }
   .fiche-children { padding-left: 1.2rem; }
@@ -210,7 +255,7 @@
 </script>
 </head>
 <body>
-<h1>GeneaViz — M9c : chaîne de parenté entre deux individus (arbre, chronologique, 3D)</h1>
+<h1>GeneaViz — M10 : thème clair / sombre / automatique (arbre, chronologique, 3D)</h1>
 
 <p>
   <label for="file">Fichier GEDCOM :</label>
@@ -231,6 +276,15 @@
 
 <div id="workspace">
   <div id="view-bar" hidden>
+    <!-- thème clair / sombre / automatique (M10) : « Automatique » suit les
+         réglages de l'environnement (prefers-color-scheme) -->
+    <label title="Mode d'affichage — « Automatique » suit les réglages de l'environnement">Thème
+      <select id="theme-select">
+        <option value="auto">Automatique</option>
+        <option value="light">Clair</option>
+        <option value="dark">Sombre</option>
+      </select></label>
+    <span class="vsep"></span>
     <button type="button" class="view-btn active" data-view="tree">Arbre</button>
     <button type="button" class="view-btn" data-view="chrono">Chronologique</button>
     <button type="button" class="view-btn" data-view="view3d">3D</button>

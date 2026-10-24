@@ -16,7 +16,7 @@ GLM), à partir des spécifications, des retours de test et des décisions de
 Paul Rascle : 113 commits produits du 6 au 24 octobre 2026, relus et fusionnés
 par Paul Rascle au fil de 20 pull requests (une par jalon ou correctif).
 
-## État : jalon M9c — chaîne de parenté entre deux individus
+## État : jalon M10 — thème clair / sombre / automatique
 
 - `js/logger.js` — traces module par module, niveaux DEBUG/INFO/WARN/ERROR.
 - `js/utils.js` — parsing/formatage des dates GEDCOM (y compris ABT/BEF/AFT), debounce.
@@ -146,6 +146,15 @@ par Paul Rascle au fil de 20 pull requests (une par jalon ou correctif).
   le fils de X, qui est le père de Y, … ») et liste des liens, étirable par
   la poignée en bas à droite (vers la droite = élargir, vers le haut =
   agrandir) ; fermeture par ✕, Échap ou « Chaîne : effacer ».
+- M10 — thème clair / sombre / automatique : sélecteur « Thème » en tête du
+  bandeau de vues (Automatique / Clair / Sombre), mémorisé dans le navigateur ;
+  le mode « Automatique » suit en direct les réglages de l'environnement
+  (prefers-color-scheme), y compris pendant la session. Toute l'interface,
+  l'arbre et la frise sont recolorés instantanément (palette en variables CSS,
+  mode actif porté par html[data-theme], script inline anti-flash au
+  chargement) ; la vue 3D, peinte au rendu, possède sa palette propre et est
+  rebâtie à chaque changement de thème en conservant le point de vue (caméra +
+  zoom), l'isolation de plan et la chaîne de parenté.
 
 ## Utilisation
 
@@ -184,6 +193,10 @@ conjoint·e) est mis en évidence en ambre dans les trois vues et détaillé dan
 le panneau en bas à gauche (phrase complète et liste des liens) ; panneau
 étirable par sa poignée en bas à droite, effacement par ✕, Échap ou « Chaîne :
 effacer ».
+Le sélecteur **Thème** du bandeau de vues bascule l'ensemble de l'application
+en mode clair, sombre ou « Automatique » (suit les réglages de l'environnement,
+même en cours de session) ; le choix est mémorisé d'une visite à l'autre et la
+vue 3D conserve son cadrage au basculement.
 Les fichiers anciens non-UTF-8 (CP1252/ANSI, UTF-16, ANSEL…) sont désormais
 correctement décodés ; un fichier mal formé (sans en-tête HEAD, sans trailer
 TRLR, niveaux incohérents) est refusé avec un message explicite.
@@ -239,3 +252,10 @@ Après chargement d'un fichier :
   composent avec le survol dans leur rendu ; en 3D, le parcours unique
   d'opacités compose survol, isolation et chaîne : l'isolation de plan reste
   prioritaire sur la chaîne (choix validé à l'usage).
+- Thème (M10) : la palette vit en variables CSS (`:root` pour le clair,
+  `html[data-theme="dark"]` pour le sombre, `color-scheme` pour les contrôles
+  natifs) ; le mode actif est mémorisé dans localStorage (`genea:theme`) et
+  posé avant le premier rendu par un script inline anti-flash ; la vue 3D
+  (textures et matériaux peints au rendu) a sa palette JS (`v3dPalette()`) et
+  est rebâtie à chaque changement de thème en conservant caméra, isolation et
+  chaîne.
