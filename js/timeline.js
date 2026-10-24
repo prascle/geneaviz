@@ -117,15 +117,48 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
        .style('top', Math.max(12, window.innerHeight - h - 12) + 'px');
   };
 
+  /* ---------------- chaîne de parenté A→B (M9c) ---------------- */
+
+  /** Ids des membres et paires des liens consécutifs — null = aucune. */
+  let chainIds = null;
+  let chainPairs = null;
+
+  const inChain = (id) => !!chainIds && chainIds.has(id);
+
+  /** Le lien relie-t-il deux membres consécutifs de la chaîne ? */
+  function linkInChain(l) {
+    if (!chainPairs || !l.ids) return false;
+    for (let i = 0; i < l.ids.length; i++) {
+      for (let j = i + 1; j < l.ids.length; j++) {
+        const k = l.ids[i] < l.ids[j]
+          ? l.ids[i] + '|' + l.ids[j] : l.ids[j] + '|' + l.ids[i];
+        if (chainPairs.has(k)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Surbrillance persistante de la chaîne (M9c) : membres et liens de
+   *  la chaîne en évidence, le reste estompé. */
+  function applyChain() {
+    gView.selectAll('g.tl-box')
+      .classed('chain', (b) => inChain(b.id))
+      .classed('dim', (b) => chainIds && !inChain(b.id));
+    gView.selectAll('path.tl-link, line.tl-marry')
+      .classed('chain', (l) => linkInChain(l))
+      .classed('dim', (l) => chainIds && !linkInChain(l));
+  }
+
   /** Survol : famille en évidence + code couleur relatif à l'individu
    *  survolé (g0 = sa génération, g-1 = parents, g1 = enfants).
-   *  (Contenu de l'infobulle : module partagé tooltip.js.) */
+   *  (Contenu de l'infobulle : module partagé tooltip.js ; les membres
+   *  de la chaîne restent en évidence, M9c.) */
   function highlightFamily(person) {
     const fam = familySet(index, person);
     const hRow = [...rowMap.values()].find((r) => r.id === person.id);
     const hGen = hRow?.gen;
     gView.selectAll('g.tl-box')
-      .classed('dim', (b) => !fam.has(b.id))
+      .classed('dim', (b) => !fam.has(b.id) && !inChain(b.id))
       .classed('hl', (b) => fam.has(b.id) && b.id !== person.id);
     // couleurs de génération relatives au survolé
     gView.selectAll('g.tl-box').select('rect')
@@ -133,14 +166,17 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       .classed('g0',  (b) => hGen != null && b.gen === hGen)
       .classed('g1',  (b) => hGen != null && b.gen === hGen + 1);
     gView.selectAll('path.tl-link, line.tl-marry')
-      .classed('dim', (l) => !(l.ids && l.ids.every((i) => fam.has(i))));
+      .classed('dim', (l) => !(l.ids && l.ids.every((i) => fam.has(i))) && !linkInChain(l));
   }
 
-  /** Rétablit l'opacité normale. */
+  /** Rétablit l'opacité normale (hors chaîne persistante, M9c). */
   function clearHighlight() {
-    gView.selectAll('g.tl-box').classed('dim', false).classed('hl', false);
+    gView.selectAll('g.tl-box')
+      .classed('dim', (b) => chainIds && !inChain(b.id))
+      .classed('hl', false);
     gView.selectAll('g.tl-box').select('rect').classed('g-1', false).classed('g0', false).classed('g1', false);
-    gView.selectAll('path.tl-link, line.tl-marry').classed('dim', false);
+    gView.selectAll('path.tl-link, line.tl-marry')
+      .classed('dim', (l) => chainIds && !linkInChain(l));
   }
 
   /* ---------------- layout partagé (layout.js) ---------------- */
@@ -285,6 +321,7 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
       });
 
     fitView(false);
+    applyChain();   // chaîne A→B persistante d'un rendu à l'autre (M9c)
     log.info(`Frise chronologique : ${boxes.length} boîte(s) ` +
       `(${upGen} gén. ascendants symétriques, ${downGen} gén. descendants)`);
   }
@@ -294,5 +331,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
     update,
     setGenerations: (u, d) => { upGen = u; downGen = d; layout.setGenerations(u, d); update(currentRootId); },
     reset: () => fitView(true),
+    /** Définit/efface la chaîne de parenté (M9c) : ids (Set) des membres
+     *  + paires « idA|idB » des liens consécutifs, null = aucune. */
+    setChain: (ids, pairs) => { chainIds = ids; chainPairs = pairs; applyChain(); },
   };
 }

@@ -129,6 +129,28 @@
   #view3d-settings .v3d-set-row input[type="range"] { width: 100%; }
   #view3d-settings .v3d-set-row input[type="checkbox"] { justify-self: end; }
 
+  /* chaîne de parenté entre deux individus (M9c) */
+  #chain-panel { position: absolute; left: 8px; bottom: 8px; z-index: 40;
+    max-width: min(26rem, calc(100vw - 2rem));
+    background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
+    box-shadow: 6px -6px 22px rgba(0,0,0,.16);
+    display: flex; flex-direction: column; overflow: hidden; }
+  #chain-panel[hidden] { display: none; }
+  #chain-head { display: flex; justify-content: space-between; align-items: center;
+    padding: .4rem .7rem; border-bottom: 1px solid #e5e7eb; background: #f8fafc; }
+  #chain-head strong { font-size: .85rem; }
+  #chain-close { border: none; background: none; font-size: 15px;
+    cursor: pointer; color: #555; padding: .1rem .3rem; }
+  #chain-close:hover { color: #111; }
+  #chain-body { padding: .5rem .75rem; font-size: 13px; line-height: 1.5;
+    max-height: 11rem; overflow-y: auto; }
+  #chain-body .chain-sentence { margin: 0; }
+  #chain-body ol { margin: .45rem 0 0; padding-left: 1.25rem; }
+  #chain-body li { margin-bottom: .12rem; }
+  .tree-node.chain rect, .tl-box.chain rect { stroke: #d97706; stroke-width: 2.4; }
+  .tree-link.chain, .spouse-link.chain, .tl-link.chain, .tl-marry.chain
+    { stroke: #d97706; opacity: 1; }
+
   /* panneau latéral « fiche individu » (M8b) */
   #workspace { position: relative; }
   #fiche-panel { position: absolute; top: 0; right: 0; bottom: 0; z-index: 50;
@@ -227,6 +249,15 @@
       <button type="button" id="fiche-close" title="Fermer la fiche">✕</button>
     </div>
     <div id="fiche-body">Sélectionner un individu pour afficher sa fiche complète.</div>
+  </aside>
+
+  <!-- chaîne de parenté entre deux individus (M9c) -->
+  <aside id="chain-panel" hidden aria-hidden="true">
+    <div id="chain-head">
+      <strong id="chain-title">Chaîne de parenté</strong>
+      <button type="button" id="chain-close" title="Effacer la chaîne">✕</button>
+    </div>
+    <div id="chain-body"></div>
   </aside>
 </div>
 

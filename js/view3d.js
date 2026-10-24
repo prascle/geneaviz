@@ -177,6 +177,14 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
    */
   let isolated = undefined;
 
+  /**
+   * Chaîne de parenté A→B (M9c) : ids (Set) des membres + paires
+   * « idA|idB » des liens consécutifs — surbrillance persistante,
+   * conservée d'un rendu à l'autre ; null = aucune.
+   */
+  let chainIds = null;
+  let chainPairs = null;
+
   /** Lignes et plans du dernier rendu (API planeOf/planeCount, M9b). */
   let lastRows = new Map();
   let planePivots = new Set();
@@ -678,6 +686,19 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     return true;
   }
 
+  /** Deux ids consécutifs de la chaîne dans ce groupe d'ids ? (M9c) */
+  function linkInChain(ids) {
+    if (!chainPairs) return false;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const k = ids[i] < ids[j]
+          ? ids[i] + '|' + ids[j] : ids[j] + '|' + ids[i];
+        if (chainPairs.has(k)) return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Recalcule l'aspect de tout le contenu — un seul endroit, appelé au
    * survol comme à l'isolation. Survol : surbrillance de famille, liens
@@ -686,9 +707,13 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
    * prioritaire sur le survol ; les surfaces de plans suivent (plan
    * isolé renforcé, autres plans quasi effacés) ; la barre du pivot du
    * plan isolé reste visible (le pivot vit sur le plan de base).
+   * Chaîne de parenté A→B (M9c) : membres et liens consécutifs en
+   * évidence (liens ×2,5), le reste estompé comme au survol — se
+   * compose avec le survol de famille.
    */
   function applyLook() {
     const fam = hovered ? familySet(index, hovered.person) : null;
+    const chain = !!chainIds && chainIds.size > 0;
     content.traverse((o) => {
       if (!o.material) return;
       const ud = o.userData;
@@ -707,10 +732,16 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         && ud.ids[0] === isolated;
       const act = planeActive(o) || isPivot;
       const inFam = !!fam && ud.ids.every((i) => fam.has(i));
-      o.material.opacity = !act ? Math.min(ud.op0, 0.07)
-        : fam && !inFam ? 0.1 : ud.op0;
+      // M9c : membre de la chaîne = barre/pastille/cône (id unique) ou
+      // lien entre deux membres consécutifs de la chaîne.
+      const onChain = !chain ? false
+        : ud.ids.length === 1 ? chainIds.has(ud.ids[0]) : linkInChain(ud.ids);
+      let op = ud.op0;
+      if (!act) op = Math.min(ud.op0, 0.07);
+      else if ((fam && !inFam) || (chain && !onChain)) op = 0.1;
+      o.material.opacity = op;
       if (ud.lw0 != null) {
-        o.material.linewidth = inFam && act ? ud.lw0 * 2.5 : ud.lw0;
+        o.material.linewidth = (inFam || onChain) && act ? ud.lw0 * 2.5 : ud.lw0;
       }
     });
   }
@@ -811,5 +842,8 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     },
     /** Rétablit tous les plans (M9b). */
     clearIsolation: () => { isolated = undefined; applyLook(); },
+    /** Définit/efface la chaîne de parenté (M9c) : ids (Set) des membres
+     *  + paires « idA|idB » des liens consécutifs, null = aucune. */
+    setChain: (ids, pairs) => { chainIds = ids; chainPairs = pairs; applyLook(); },
   };
 }
