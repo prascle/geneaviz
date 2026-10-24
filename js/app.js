@@ -256,6 +256,37 @@ async function handleFile(file) {
       if (e.key === 'Escape' && !fichePanel.classList.contains('open')
           && !chainPanel.hidden) clearChain();
     });
+
+    // ---------- Étirage du panneau chaîne (poignée bas-droite) ----------
+    // Le redimensionnement natif CSS (resize: both) garde le coin
+    // haut-gauche fixe : sur un panneau ancré en bas à gauche, il étire
+    // vers le bas, hors de l'écran. Le drag manuel ci-dessous conserve
+    // l'ancrage : vers la droite = élargir, vers le haut = agrandir.
+    const chainGrip = document.getElementById('chain-grip');
+    const clampNum = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+    let gripStart = null;
+    chainGrip.addEventListener('pointerdown', (e) => {
+      gripStart = {
+        x: e.clientX, y: e.clientY,
+        w: chainPanel.offsetWidth, h: chainPanel.offsetHeight,
+        // bornes : la place disponible dans #workspace, moins la marge
+        maxW: chainPanel.parentElement.clientWidth - 16,
+        maxH: chainPanel.parentElement.clientHeight - 16,
+      };
+      chainGrip.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    chainGrip.addEventListener('pointermove', (e) => {
+      if (!gripStart) return;
+      // 15rem × 8rem = minimums du CSS ; le maximum CSS (40rem, 100vh-5rem)
+      // borne de toute façon les valeurs trop grandes.
+      chainPanel.style.width = clampNum(gripStart.w + e.clientX - gripStart.x,
+        240, gripStart.maxW) + 'px';
+      chainPanel.style.height = clampNum(gripStart.h - (e.clientY - gripStart.y),
+        128, gripStart.maxH) + 'px';
+    });
+    chainGrip.addEventListener('pointerup', () => { gripStart = null; });
+    chainGrip.addEventListener('pointercancel', () => { gripStart = null; });
     
     // ---------- Vues (arbre + chronologique) : réglages partagés ----------
     treeApi = initTree({
