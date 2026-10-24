@@ -4,6 +4,18 @@ Application web 100 % client (JavaScript ES modules + HTML) pour l'exploration d
 généalogiques au format GEDCOM. Trois vues : arbre générationnel (D3),
 chronologique, et 3D (Three.js). Voir le cahier des charges pour le détail.
 
+## Auteurs
+
+Le **design de l'application et le pilotage du développement incrémental** —
+cahiers des charges, découpage en jalons (M0 à M9), arbitrages fonctionnels,
+tests d'ergonomie et validation à chaque étape — sont de **Paul Rascle**
+(dépôt GitHub [`prascle/geneaviz`](https://github.com/prascle/geneaviz)).
+
+Le **codage a intégralement été réalisé par Mistral AI** (agent Vibe, modèle
+GLM), à partir des spécifications, des retours de test et des décisions de
+Paul Rascle : 113 commits produits du 6 au 24 octobre 2026, relus et fusionnés
+par Paul Rascle au fil de 20 pull requests (une par jalon ou correctif).
+
 ## État : jalon M9c — chaîne de parenté entre deux individus
 
 - `js/logger.js` — traces module par module, niveaux DEBUG/INFO/WARN/ERROR.
