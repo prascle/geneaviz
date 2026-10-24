@@ -329,6 +329,8 @@ export function initTimeline({ container, index, upGen = 3, downGen = 3, onSelec
   log.info('Vue chronologique généalogique initialisée');
   return {
     update,
+    /** Racine courante (M10 : re-rendu au changement de thème si besoin). */
+    getRootId: () => currentRootId,
     setGenerations: (u, d) => { upGen = u; downGen = d; layout.setGenerations(u, d); update(currentRootId); },
     reset: () => fitView(true),
     /** Définit/efface la chaîne de parenté (M9c) : ids (Set) des membres

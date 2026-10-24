@@ -45,9 +45,32 @@ const log = logger('view3d');
 /** Dimensions du monde (unités arbitraires). */
 const MIN_BAR_W = 26;    // largeur minimale d'une barre
 const BAR_D = 8;         // profondeur d'une barre (oZ)
-const LINK_COL = 0x94a3b8;
-const MARR_COL = 0xb45309;
 const PLANE_GAP = 60;    // écart entre plans d'édition le long de oZ (M7b)
+
+/**
+ * Palette de couleurs de la vue 3D selon le thème actif (M10) : fond et
+ * brouillard, grille des années, texture des barres (fonds par sexe, nom,
+ * dates), liens filiation/mariage. Le thème est relu à chaque update — le
+ * changement de thème rebâtit la vue (app.js, caméra préservée).
+ * @returns {Object} couleurs du rendu courant
+ */
+function v3dPalette() {
+  return document.documentElement.dataset.theme === 'dark' ? {
+    bg: 0x0f172a,
+    grid: 0x1e293b,
+    tick: '#64748b',
+    barM: '#1e3a5f', barF: '#422740', barU: '#263143',
+    name: '#e2e8f0', dates: '#94a3b8', datesEst: '#f59e0b',
+    link: 0x64748b, marr: 0xd97706,
+  } : {
+    bg: 0xffffff,
+    grid: 0xdbe2ea,
+    tick: '#94a3b8',
+    barM: '#dbeafe', barF: '#fce7f3', barU: '#eef2f7',
+    name: '#1f2937', dates: '#555', datesEst: '#b45309',
+    link: 0x94a3b8, marr: 0xb45309,
+  };
+}
 
 /** Réglages utilisateur (panneau M7b/M9a, ajustables à l'exécution). */
 const settings = {
@@ -110,8 +133,8 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xffffff);
-  scene.fog = new THREE.Fog(0xffffff, 2000, 9000);
+  scene.background = new THREE.Color(v3dPalette().bg);
+  scene.fog = new THREE.Fog(v3dPalette().bg, 2000, 9000);
 
   const FOV = 50;    // champ de la perspective — référence du cadrage (M9b)
   const perspCam = new THREE.PerspectiveCamera(FOV, 1, 0.1, 50000);
@@ -401,8 +424,9 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const g = c.getContext('2d');
+    const pal = v3dPalette();   // couleurs selon le thème (M10)
     const sex = row.person.sex;
-    g.fillStyle = sex === 'M' ? '#dbeafe' : sex === 'F' ? '#fce7f3' : '#eef2f7';
+    g.fillStyle = sex === 'M' ? pal.barM : sex === 'F' ? pal.barF : pal.barU;
     g.fillRect(0, 0, w, h);
     if (row.id === currentRootId) {           // liseré bleu autour de la barre racine
       g.strokeStyle = '#2563eb';
@@ -419,11 +443,11 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     // nom à gauche, dates à droite, sur la même ligne
     g.textAlign = 'left';
     g.font = `bold ${Math.round(h * 0.62)}px system-ui, sans-serif`;
-    g.fillStyle = '#1f2937';
+    g.fillStyle = pal.name;
     g.fillText(name, pad, h / 2, w * 0.58);
     g.textAlign = 'right';
     g.font = `${Math.round(h * 0.54)}px system-ui, sans-serif`;
-    g.fillStyle = row.est ? '#b45309' : '#555';
+    g.fillStyle = row.est ? pal.datesEst : pal.dates;
     g.fillText(dates, w - pad, h / 2, w * 0.38);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -432,11 +456,26 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   }
 
   /** Dessine le graphe pour la racine donnée. */
-  function update(rootId) {
+  function update(rootId, opts = {}) {
+    // M10 : au changement de thème, app.js rebâtit la vue en conservant le
+    // point de vue (position, cible, zoom de la caméra active).
+    const keep = opts.keepCamera ? {
+      pos: camera.position.clone(), tgt: controls.target.clone(),
+      zoom: camera.zoom,
+    } : null;
+    const pal = v3dPalette();
+    scene.background.set(pal.bg);   // fond et brouillard suivent le thème
+    scene.fog.color.set(pal.bg);
     currentRootId = rootId;
     clearContent();
     hideTip();
     hovered = null;
+    if (keep) {                      // restaure le point de vue avant rendu
+      camera.position.copy(keep.pos);
+      controls.target.copy(keep.tgt);
+      camera.zoom = keep.zoom;
+      controls.update();
+    }
     if (!rootId || !index.getIndividual(rootId)) return;
     const L = layout.run(rootId);
     const rows = L.rows;
@@ -496,10 +535,10 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         new THREE.Vector3(x, floorY, Math.min(-70, zMin - 50)),
         new THREE.Vector3(x, floorY, 70)]);
       const line = new THREE.Line(geo,
-        new THREE.LineBasicMaterial({ color: 0xdbe2ea }));
+        new THREE.LineBasicMaterial({ color: pal.grid }));
       content.add(line);
       const spr = makeSprite(
-        [{ text: String(t), font: 'bold 40px system-ui, sans-serif', color: '#94a3b8', dy: 46 }],
+        [{ text: String(t), font: 'bold 40px system-ui, sans-serif', color: pal.tick, dy: 46 }],
         { w: 256, h: 64, scaleW: 46, scaleH: 12 });
       spr.position.set(x, floorY + 8, 76);
       content.add(spr);
@@ -594,7 +633,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         const line = makeLink([
           new THREE.Vector3(x, -(l.rowA.y + settings.barH / 2), l.rowA.z),
           new THREE.Vector3(x, -(l.rowB.y + settings.barH / 2), l.rowB.z)],
-          MARR_COL);
+          pal.marr);
         line.userData = { ids: l.ids, op0: 1, lw0: linkWidth(),
           planes: [l.rowA.pivot ?? null, l.rowB.pivot ?? null] };
         content.add(line);
@@ -610,7 +649,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
         const line = makeLink([
           new THREE.Vector3(x, yFrom, zFrom),
           new THREE.Vector3(x, (yFrom + cy) / 2, (zFrom + cr.z) / 2),
-          new THREE.Vector3(cr.x1 + 12, cy, cr.z)], LINK_COL);
+          new THREE.Vector3(cr.x1 + 12, cy, cr.z)], pal.link);
         line.userData = { ids: l.ids, op0: 1, lw0: linkWidth(),
           planes: [...fromRows.map((fr) => fr.pivot ?? null), cr.pivot ?? null] };
         content.add(line);
@@ -618,7 +657,7 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
     }
 
     applyLook();   // état d'isolation conservé d'un rendu à l'autre (M9b)
-    setCamera('face');
+    if (!keep) setCamera('face');   // M10 : caméra préservée au re-rendu thème
     log.info(`Vue 3D : ${rows.size} individu(s), ${links.length} lien(s)` +
       (usedPivots.size ? `, ${usedPivots.size} plan(s) d'édition` : '') +
       ` (${upGen} gén. ascendants, ${downGen} gén. descendants)`);
@@ -825,6 +864,8 @@ export function initView3d({ container, index, upGen = 3, downGen = 3,
   log.info('Vue 3D initialisée (Three.js)');
   return {
     update,
+    /** Racine courante (M10 : re-rendu au changement de thème). */
+    getRootId: () => currentRootId,
     setGenerations: (u, d) => { upGen = u; downGen = d; layout.setGenerations(u, d); update(currentRootId); },
     reset: () => setCamera('face'),
     /** Nombre de plans dessinés, plan de base inclus (M9b). */
