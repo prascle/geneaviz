@@ -131,7 +131,8 @@
 
   /* chaîne de parenté entre deux individus (M9c) */
   #chain-panel { position: absolute; left: 8px; bottom: 8px; z-index: 40;
-    max-width: min(26rem, calc(100vw - 2rem));
+    max-width: min(40rem, calc(100vw - 2rem)); max-height: calc(100vh - 5rem);
+    min-width: 15rem; min-height: 8rem; resize: both;
     background: #fff; border: 1px solid #cbd5e1; border-radius: 8px;
     box-shadow: 6px -6px 22px rgba(0,0,0,.16);
     display: flex; flex-direction: column; overflow: hidden; }
@@ -142,8 +143,11 @@
   #chain-close { border: none; background: none; font-size: 15px;
     cursor: pointer; color: #555; padding: .1rem .3rem; }
   #chain-close:hover { color: #111; }
+  /* panneau extensible : poignée native en bas à droite (resize: both) ;
+     le corps garde sa hauteur de 11rem par défaut (flex-basis) et grandit
+     ou rétrécit quand on étire le panneau, avec défilement interne. */
   #chain-body { padding: .5rem .75rem; font-size: 13px; line-height: 1.5;
-    max-height: 11rem; overflow-y: auto; }
+    flex: 1 1 11rem; min-height: 0; overflow-y: auto; }
   #chain-body .chain-sentence { margin: 0; }
   #chain-body ol { margin: .45rem 0 0; padding-left: 1.25rem; }
   #chain-body li { margin-bottom: .12rem; }

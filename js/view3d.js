@@ -55,7 +55,7 @@ const settings = {
   gapRow: 5,    // écart entre les barres d'un couple (métrique layout)
   bandGap: 18,  // écart entre un couple et ses enfants (métrique layout)
   yearW: 8,     // largeur d'une année (échelle du temps)
-  linkW: 2,     // épaisseur des liens de mariage/filiation (px CSS)
+  linkW: 1,     // épaisseur des liens de mariage/filiation (px CSS)
   fog: 0,       // brouillard de profondeur, 0 (off) à 100 (fort)
 };
 
