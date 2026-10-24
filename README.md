@@ -200,6 +200,10 @@ vue 3D conserve son cadrage au basculement.
 Les fichiers anciens non-UTF-8 (CP1252/ANSI, UTF-16, ANSEL…) sont désormais
 correctement décodés ; un fichier mal formé (sans en-tête HEAD, sans trailer
 TRLR, niveaux incohérents) est refusé avec un message explicite.
+Les individus portant plusieurs champs NAME (nom de naissance suivi d'un nom
+d'épouse, par exemple) sont affichés sous leur nom de naissance dans toutes les
+vues, la recherche et la fiche : priorité au NAME de TYPE birth, sinon le
+PREMIER NAME ; la fiche n'affiche plus les noms alternatifs.
 
 Niveau de trace : ajouter `?log=DEBUG` à l'URL (ou `localStorage.setItem('genea:logLevel','DEBUG')`).
 
@@ -233,6 +237,11 @@ Après chargement d'un fichier :
   conservés par l'index (`person.raw`, `fam.raw` — valeurs CONT/CONC déjà
   fusionnées) uniquement à l'ouverture, et résout les notes et sources
   référencées par `@xref@` via la sélection racine (`index.getGedcom()`).
+- Nom retenu (correctif 2026-10-24) : pour un individu multi-NAME, l'index
+  (`js/gedcomIndex.js`) et la fiche (`js/gedcomDetail.js`) retiennent le NAME
+  de TYPE birth, sinon le PREMIER NAME — l'ancienne règle « dernier NAME
+  gagne » masquait le nom de jeune fille derrière un nom d'épouse ; les
+  autres sémantiques (dernier SEX/BIRT/DEAT/MARR daté gagne) sont inchangées.
 - Les liens 3D (M9a) utilisent `Line2`/`LineMaterial` (addons `three/addons/lines/`)
   dont l'épaisseur s'exprime en pixels du tampon de rendu (multipliée par le pixel
   ratio du navigateur) et dont la résolution doit suivre la taille du canvas à
